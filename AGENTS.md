@@ -58,6 +58,18 @@ Every piece of dynamic information MUST carry Unix epoch timestamps (in UTC seco
 - Never allow an LLM or scraper to create free-text `:Stock`, `:Commodity`, or `:MacroFactor` nodes.
 - All entity strings must pass through `CanonicalEntityResolver` first to resolve to an official NSE `ticker` / `ISIN` or a locked enum ID (`BRENT_CRUDE`, `HRC_STEEL`, `COKING_COAL`, `USD_INR`, `RBI_REPO_RATE`, `INDIA_CPI`).
 
+### Rule 5: Stock-to-Stock Relationships (`:Stock -> :Stock`)
+FalkorDB must explicitly model inter-company relationships so users and agents can trace supply-chain contagion, peer competition, and conglomerate links:
+- `(:Stock)-[:SUPPLIES_TO {component: str, revenue_dependency: "HIGH"|"MED"|"LOW"}]->(:Stock)`
+- `(:Stock)-[:COMPETES_WITH {segment: str}]->(:Stock)`
+- `(:Stock)-[:OWNS_STAKE_IN {stake_pct: float, relation_type: "SUBSIDIARY"|"ASSOCIATE"|"JV"}]->(:Stock)`
+- `(:Stock)-[:BELONGS_TO_GROUP]->(:BusinessGroup {id: str, name: str})` (e.g., `TATA_GROUP`, `ADANI_GROUP`, `RELIANCE_GROUP`, `ADITYA_BIRLA_GROUP`)
+
+### Rule 6: Dual API Output Modes (Agent Dossier Mode vs. Frontend Graph UI Mode)
+Every temporal query in `FalkorGraphRAGRepository` must support two output serializers:
+1. **Agent Dossier Mode (`/api/v1/stocks/{ticker}/dossier`):** Hierarchical JSON optimized for LLM reasoning and Phase 2 trading bots.
+2. **Graph Visualization UI Mode (`/api/v1/graph/...`):** Flat `{ "nodes": [...], "links": [...] }` JSON topology compatible with **React Force Graph / Three.js / Cytoscape.js / Sigma.js**, complete with visual properties (`group`, `color_category`, `val/size`, `polarity`, `hop_distance`, `event_ts`).
+
 ---
 
 ## 4. Target Repository Structure

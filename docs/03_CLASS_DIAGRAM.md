@@ -175,6 +175,83 @@ RETURN new_q
 
 ---
 
+## 3. Graph Visualization Service & DTO Extensions
+
+### 3.1 Additional Classes in Mermaid Diagram
+```mermaid
+classDiagram
+    class GraphVisualizationService {
+        -FalkorGraphRAGRepository graph_repo
+        +get_ego_network(ticker: str, depth: int, from_date: Optional~date~, to_date: Optional~date~, include_peers: bool) GraphTopologyResponse
+        +get_shortest_path_between_stocks(source_ticker: str, target_ticker: str, max_hops: int) GraphTopologyResponse
+        +get_macro_or_news_blast_radius(entity_id: str, from_date: Optional~date~, to_date: Optional~date~) GraphTopologyResponse
+    }
+
+    class SupplyChainAndPeerExtractor {
+        -LLMClient llm
+        -CanonicalEntityResolver resolver
+        +extract_stock_to_stock_edges_from_annual_report(ticker: str, text: str) List~StockToStockEdgeDTO~
+        +extract_supply_chain_mention_from_news(article: RawArticle) List~StockToStockEdgeDTO~
+    }
+
+    GraphVisualizationService --> FalkorGraphRAGRepository
+    SupplyChainAndPeerExtractor --> CanonicalEntityResolver
+```
+
+### 3.2 Pydantic Schemas for Graph Frontend (`src/domain/schemas_graph_ui.py`)
+```python
+from typing import List, Optional, Dict, Any, Literal
+from pydantic import BaseModel, Field
+
+
+class StockToStockEdgeDTO(BaseModel):
+    source_ticker: str
+    target_ticker: str
+    relationship_type: Literal["SUPPLIES_TO", "COMPETES_WITH", "OWNS_STAKE_IN"]
+    segment_or_component: str
+    dependency_strength: Literal["HIGH", "MEDIUM", "LOW"] = "MEDIUM"
+    stake_pct: Optional[float] = None
+    source_evidence: Optional[str] = None
+    updated_ts: int
+
+
+class GraphNodeUI(BaseModel):
+    id: str = Field(..., description="Namespaced ID, e.g., STOCK:TATASTEEL or COMMODITY:BRENT_CRUDE")
+    label: str
+    node_type: Literal[
+        "Stock", "PeerStock", "BusinessGroup", "Sector",
+        "Commodity", "Currency", "MacroFactor",
+        "NewsEvent", "InstitutionalActor", "MutualFundHouse",
+        "QuarterlySnapshot", "GuidanceChunk", "DailyAnomalyEvent"
+    ]
+    hop_distance: int = 0
+    visual_size: float = 16.0
+    event_ts: Optional[int] = None
+    valid_from_ts: Optional[int] = None
+    valid_to_ts: Optional[int] = None
+    properties: Dict[str, Any] = Field(default_factory=dict)
+
+
+class GraphLinkUI(BaseModel):
+    id: str
+    source: str
+    target: str
+    relationship: str
+    polarity: Literal["POSITIVE", "NEGATIVE", "INVERSE", "DIRECT", "NEUTRAL"] = "NEUTRAL"
+    weight: float = 1.0
+    event_ts: Optional[int] = None
+    properties: Dict[str, Any] = Field(default_factory=dict)
+
+
+class GraphTopologyResponse(BaseModel):
+    center_node_id: Optional[str] = None
+    window: Dict[str, Any]
+    total_nodes: int
+    total_links: int
+    nodes: List[GraphNodeUI]
+    links: List[GraphLinkUI]
+```
+
 ## 4. PostgreSQL / TimescaleDB DDL Schema
 
 ```sql

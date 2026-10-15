@@ -233,3 +233,159 @@ CREATE TABLE quarterly_financials (
     PRIMARY KEY (ticker, quarter_label)
 );
 ```
+
+## 5. Stock-to-Stock Topology & Graph Visualization API
+
+### 5.1 Stock-to-Stock & Conglomerate Schema in FalkorDB
+```text
+   (:Stock {ticker: "NMDC"})                  (:BusinessGroup {id: "TATA_GROUP"})
+               |                                       ^               ^
+               | [:SUPPLIES_TO {item: "Iron Ore"}]     |               | [:BELONGS_TO_GROUP]
+               v                                       |               |
+   (:Stock {ticker: "TATASTEEL"}) ---------------------+               |
+       |                |     |                                        |
+       |                |     +----------------------------------------+
+       |                |     | [:SUPPLIES_TO {item: "Auto Grade Steel"}]
+       |                |     v
+       |                |   (:Stock {ticker: "TATAMOTORS"}) <--[:SUPPLIES_TO]-- (:Stock {ticker: "SONACOMS"})
+       |                |
+       |                +--> [:OWNS_STAKE_IN {stake_pct: 34.1}] --> (:Stock {ticker: "TRF"})
+       |
+       +--> [:COMPETES_WITH {segment: "Flat Steel"}] <--> (:Stock {ticker: "JSWSTEEL"})
+```
+
+### 5.2 OpenCypher Query for N-Hop Frontend Graph Visualization (`/api/v1/graph/ego/{ticker}`)
+Returns both **Stock-to-Entity** and **Stock-to-Stock** relationships filtered by `[start_ts, end_ts]` (or all-time if unfiltered):
+
+```cypher
+MATCH (center:Stock {ticker: $ticker})
+
+// 1. Stock-to-Stock Paths (1 to 2 Hops: Suppliers, Customers, Competitors, Subsidiaries, Group Peers)
+OPTIONAL MATCH path_peers = (center)-[r_peer:SUPPLIES_TO|COMPETES_WITH|OWNS_STAKE_IN|BELONGS_TO_GROUP*1..2]-(peer)
+WHERE peer:Stock OR peer:BusinessGroup
+
+// 2. Structural Macro / Commodity / Sector Bridges + 2-Hop Peer Stocks sharing the same Commodity
+OPTIONAL MATCH path_struct = (center)-[r_exp:EXPOSED_TO|BELONGS_TO|SENSITIVE_TO_MACRO]->(bridge)
+OPTIONAL MATCH (bridge)<-[r_peer_exp:EXPOSED_TO]-(co_exposed_stock:Stock)
+WHERE co_exposed_stock.ticker <> $ticker AND $include_co_exposed_stocks = true
+
+// 3. Temporal Events (Direct News, 2-Hop News on Bridges/Peers, Bulk/Insider Deals, Anomalies) in [start_ts, end_ts]
+OPTIONAL MATCH (n1:NewsEvent)-[r_n1:DIRECTLY_IMPACTS]->(center)
+WHERE n1.event_ts >= $start_ts AND n1.event_ts <= $end_ts
+
+OPTIONAL MATCH (n2:NewsEvent)-[r_n2:SHOCKS|IMPACTS_SECTOR|ALTERS_MACRO]->(bridge)
+WHERE n2.event_ts >= $start_ts AND n2.event_ts <= $end_ts
+
+OPTIONAL MATCH (inst:InstitutionalActor)-[r_deal:EXECUTED_DEAL]->(center)
+WHERE r_deal.event_ts >= $start_ts AND r_deal.event_ts <= $end_ts
+
+RETURN center,
+       collect(DISTINCT path_peers) AS stock_to_stock_paths,
+       collect(DISTINCT path_struct) AS structural_paths,
+       collect(DISTINCT {stock: co_exposed_stock, bridge: bridge, rel: r_peer_exp}) AS shared_commodity_peers,
+       collect(DISTINCT {news: n1, rel: r_n1, target: center}) AS direct_news_links,
+       collect(DISTINCT {news: n2, rel: r_n2, target: bridge}) AS indirect_news_links,
+       collect(DISTINCT {actor: inst, rel: r_deal, target: center}) AS deal_links
+```
+
+### 5.3 OpenCypher Query for Shortest Path Between Any Two Stocks (`/api/v1/graph/path`)
+Allows the frontend user to select two stocks (e.g., `ONGC` and `ASIANPAINT`, or `SONACOMS` and `TATASTEEL`) and visualize how they affect each other:
+
+```cypher
+MATCH (s1:Stock {ticker: $source_ticker}), (s2:Stock {ticker: $target_ticker})
+MATCH p = shortestPath((s1)-[*..4]-(s2))
+RETURN nodes(p) AS path_nodes, relationships(p) AS path_edges
+```
+
+### 5.4 Frontend Graph Visualization API Contract (`GraphTopologyResponse`)
+Designed for zero-transformation rendering in **React Force Graph (`2D`/`3D`)**, **Three.js**, **Cytoscape.js**, or **Sigma.js**:
+
+- **Endpoints:**
+  1. `GET /api/v1/graph/ego/{ticker}?depth=2&from_date=2025-10-15&to_date=2026-10-15&include_peers=true`
+  2. `GET /api/v1/graph/path?source_ticker=TATASTEEL&target_ticker=MARUTI`
+  3. `GET /api/v1/graph/sector-cluster/{sector_id}?from_date=...&to_date=...`
+
+- **Response Schema (`GraphTopologyResponse`):**
+```json
+{
+  "center_node_id": "STOCK:TATASTEEL",
+  "window": {
+    "from_date": "2025-10-15",
+    "to_date": "2026-10-15",
+    "is_unfiltered_all_time": false
+  },
+  "nodes": [
+    {
+      "id": "STOCK:TATASTEEL",
+      "label": "TATASTEEL",
+      "node_type": "Stock",
+      "hop_distance": 0,
+      "visual_size": 30,
+      "properties": {
+        "name": "Tata Steel Ltd",
+        "pe_ratio": 14.2,
+        "delivery_zscore": 2.4
+      }
+    },
+    {
+      "id": "STOCK:TATAMOTORS",
+      "label": "TATAMOTORS",
+      "node_type": "PeerStock",
+      "hop_distance": 1,
+      "visual_size": 22,
+      "properties": {
+        "relationship_to_center": "CUSTOMER_AND_GROUP_PEER"
+      }
+    },
+    {
+      "id": "COMMODITY:HRC_STEEL",
+      "label": "HRC Steel",
+      "node_type": "Commodity",
+      "hop_distance": 1,
+      "visual_size": 20,
+      "properties": {
+        "latest_price": 52400,
+        "change_5d_pct": 3.8
+      }
+    },
+    {
+      "id": "NEWS:98f1a2",
+      "label": "Govt Mulls 12% Safeguard Duty on Steel Imports",
+      "node_type": "NewsEvent",
+      "hop_distance": 2,
+      "visual_size": 14,
+      "event_ts": 1760227200,
+      "event_date": "2026-10-12",
+      "properties": {
+        "sentiment": 0.85,
+        "category": "REGULATORY"
+      }
+    }
+  ],
+  "links": [
+    {
+      "id": "EDGE:1",
+      "source": "STOCK:TATASTEEL",
+      "target": "STOCK:TATAMOTORS",
+      "relationship": "SUPPLIES_TO",
+      "polarity": "DIRECT",
+      "weight": 0.8,
+      "properties": {
+        "component": "Automotive Grade Flat Steel"
+      }
+    },
+    {
+      "id": "EDGE:2",
+      "source": "NEWS:98f1a2",
+      "target": "COMMODITY:HRC_STEEL",
+      "relationship": "SHOCKS",
+      "polarity": "POSITIVE",
+      "weight": 0.85,
+      "event_ts": 1760227200,
+      "properties": {
+        "sentiment": 0.85
+      }
+    }
+  ]
+}
+```
