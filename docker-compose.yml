@@ -1,0 +1,58 @@
+services:
+  falkordb:
+    # Official image (server on 6379 + Browser UI on 3000). Pinned tag:
+    # `latest` drifts across releases and can change vector/index syntax.
+    image: falkordb/falkordb:v4.22.1
+    container_name: stockgraph-falkordb
+    ports:
+      - "${FALKOR_PORT:-6379}:6379"
+      - "${FALKOR_BROWSER_PORT:-3000}:3000"
+    volumes:
+      - falkor-data:/var/lib/falkordb/data
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "redis-cli", "-p", "6379", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  timescale:
+    image: timescale/timescaledb-ha:pg16
+    container_name: stockgraph-timescale
+    ports:
+      - "${TIMESCALE_PORT:-5432}:5432"
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-stockgraph}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-stockgraph}
+      POSTGRES_DB: ${POSTGRES_DB:-stockgraph}
+    volumes:
+      - timescale-data:/var/lib/postgresql/data
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-stockgraph} -d ${POSTGRES_DB:-stockgraph}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  redis:
+    image: redis:7-alpine
+    container_name: stockgraph-redis
+    ports:
+      - "${REDIS_PORT:-6380}:6379"
+    volumes:
+      - redis-data:/data
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+volumes:
+  falkor-data:
+  timescale-data:
+  redis-data:
+
+networks:
+  default:
+    name: stockgraph-net

@@ -1,0 +1,158 @@
+# Canonical market ontology registry + rich Stock Profiles (Rule 4 source of truth).
+#
+# Node types: :Stock, :Commodity, :MacroFactor, :Sector.
+# Currencies are NOT separate nodes — USD/INR forex lives as a :MacroFactor
+# (USD_INR_FX) whose numeric series stays in TimescaleDB (Rule 2).
+#
+# This file defines the canonical entity catalog, Stock Profile
+# descriptions (business_summary, revenue_segments, raw_material_inputs,
+# geographic_exposure), MacroFactor explainers (description, why_it_moves,
+# equity_transmission), Commodity inter-links (related_ids), plus the ONLY
+# permitted static edges (curated baseline, Rule 4): per-stock `exposures`
+# -> EXPOSED_TO, per-stock `macro_exposures` + BROAD default_scope
+# -> SENSITIVE_TO_MACRO, and `related_ids` -> RELATED_TO. All other
+# ontology edges (SUPPLIES_TO, COMPETES_WITH, peer Stock <-> Stock links,
+# later revisions) are inferred at runtime by the LLM (DynamicOntologyBuilder)
+# from StockContextCards built from these profiles.
+#
+# ADDING A COMMODITY / MACRO / SECTOR (operator flow, no code change):
+#   1. Append one entry under the matching section with a unique UPPER_SNAKE id,
+#      human name, unit, and aliases (used by CanonicalEntityResolver).
+#   2. For commodities: optionally list `related_ids` (input/substitute links,
+#      e.g. COKING_COAL -> HRC_STEEL) with rationale.
+#   3. For macro factors: fill `description`, `why_it_moves`, `equity_transmission`,
+#      and `default_scope` (BROAD = seeded SENSITIVE_TO_MACRO to all pilot stocks).
+#   4. Reseed FalkorDB (Milestone 2 seeder reads this file).
+#   5. Link stocks via `stocks[].exposures` (commodity ids) / `sector` below.
+# A runtime user-facing add-API is explicitly deferred — YAML-only for now.
+
+commodities:
+  - id: BRENT_CRUDE
+    name: Brent Crude Oil
+    unit: USD/bbl
+    aliases: [brent, crude, crude oil]
+    related_ids: []
+  - id: HRC_STEEL
+    name: HRC Steel (India)
+    unit: INR/tonne
+    aliases: [hrc, steel, hot rolled coil]
+    related_ids: [COKING_COAL]
+    related_rationale: Coking coal is the key blast-furnace input; its price drives steel margins.
+  - id: COKING_COAL
+    name: Coking Coal
+    unit: USD/tonne
+    aliases: [coking coal, met coal]
+    related_ids: [HRC_STEEL]
+    related_rationale: Key input cost for blast-furnace steel production.
+
+macro_factors:
+  - id: RBI_REPO_RATE
+    name: RBI Repo Rate
+    unit: percent
+    aliases: [repo rate, rbi, monetary policy]
+    description: Policy rate at which RBI lends to banks; anchors borrowing costs across the economy.
+    why_it_moves: RBI MPC hikes when inflation runs above target or cuts to support growth; global rates and INR pressure also feed in.
+    equity_transmission: Higher repo raises cost of capital, compresses valuation multiples, and hits rate-sensitive sectors (banking NIMs, auto, realty).
+    default_scope: BROAD
+  - id: INDIA_CPI
+    name: India CPI Inflation
+    unit: percent
+    aliases: [cpi, inflation]
+    description: Consumer price inflation; determines real purchasing power and RBI policy room.
+    why_it_moves: Food and fuel supply shocks, MSP changes, crude pass-through, monsoon outcomes.
+    equity_transmission: High CPI squeezes consumption volumes and forces tighter policy; staples/autos reprice first.
+    default_scope: BROAD
+  - id: INDIA_GDP_GROWTH
+    name: India GDP Growth
+    unit: percent YoY
+    aliases: [gdp, gdp growth, economic growth]
+    description: Real GDP growth rate; top-down driver of aggregate earnings growth.
+    why_it_moves: Government capex, consumption demand, exports, monsoon, global growth linkage.
+    equity_transmission: Faster growth lifts volumes across cyclicals (banking credit, autos, cement, metals); slowdowns compress multiples.
+    default_scope: BROAD
+  - id: USD_INR_FX
+    name: USD/INR Exchange Rate
+    unit: INR per USD
+    aliases: [usd/inr, dollar, rupee, forex, currency, exchange rate]
+    description: Rupee value versus the US dollar; moved here from the retired :Currency node type.
+    why_it_moves: US Fed policy and dollar strength, FII flows, trade deficit, RBI intervention, crude import bill.
+    equity_transmission: Weak INR boosts IT/pharma export margins but raises import bills for refiners, airlines, and consumer durables.
+    default_scope: SELECTIVE
+  - id: INDIA_10Y_YIELD
+    name: India 10Y Government Bond Yield
+    unit: percent
+    aliases: [bond yield, 10y, gsec, government bond]
+    description: Benchmark long-term borrowing cost; discount rate for equity valuations.
+    why_it_moves: RBI policy expectations, fiscal deficit and government borrowing, inflation outlook, global yields.
+    equity_transmission: Higher yields derate long-duration growth stocks; banks benefit via NIMs while NBFC funding costs rise.
+    default_scope: BROAD
+  - id: US_FED_RATE
+    name: US Federal Funds Rate
+    unit: percent
+    aliases: [fed rate, us rates, federal reserve, global interest rates]
+    description: US policy rate; sets global risk appetite and dollar liquidity for EM flows.
+    why_it_moves: US inflation, labour market, FOMC dot-plot guidance.
+    equity_transmission: Higher US rates pull FII money out of India, weaken INR, and tighten domestic financial conditions.
+    default_scope: BROAD
+  - id: GOVT_CAPEX_SPEND
+    name: Government Capex Spending
+    unit: INR lakh crore
+    aliases: [capex, government spending, budget capex, infra spending]
+    description: Union budget capital expenditure on roads, rail, defence, and power.
+    why_it_moves: Budget allocations, fiscal deficit room, election cycle, execution by ministries.
+    equity_transmission: Direct order inflow for infra, capital goods, cement, and PSU banks financing projects.
+    default_scope: BROAD
+
+sectors:
+  - id: METALS
+    name: Metals & Mining
+    aliases: [metals, steel, mining]
+  - id: IT
+    name: Information Technology
+    aliases: [it, software, services]
+  - id: BANKING
+    name: Banking & Financials
+    aliases: [banking, banks, financials]
+  - id: ENERGY
+    name: Energy & Oil
+    aliases: [energy, oil, gas, refining]
+
+# Pilot stock universe. `exposures` reference commodity ids above;
+# `macro_exposures` reference macro_factor ids (BROAD macros are seeded to
+# every stock as permanent SENSITIVE_TO_MACRO edges; SELECTIVE ones only where listed).
+# Rich profiles feed StockContextCard (business model, revenue segments,
+# raw material inputs, geography) for DynamicOntologyBuilder + NewsGraphExtractor.
+stocks:
+  - ticker: TATASTEEL
+    isin: INE081A01020
+    name: Tata Steel Ltd
+    sector: METALS
+    exposures: [HRC_STEEL, COKING_COAL]
+    macro_exposures: [RBI_REPO_RATE, INDIA_CPI, INDIA_GDP_GROWTH, INDIA_10Y_YIELD, US_FED_RATE, GOVT_CAPEX_SPEND]
+    aliases: [tata steel, tatasteel]
+    business_summary: Integrated steel producer with captive iron-ore mines; flat and long products for auto, construction, and engineering.
+    revenue_segments: [flat products, long products, tubes, mining]
+    raw_material_inputs: [coking coal, iron ore]
+    geographic_exposure: India + Europe (Tata Steel Europe)
+  - ticker: RELIANCE
+    isin: INE002A01018
+    name: Reliance Industries Ltd
+    sector: ENERGY
+    exposures: [BRENT_CRUDE]
+    macro_exposures: [RBI_REPO_RATE, INDIA_CPI, INDIA_GDP_GROWTH, INDIA_10Y_YIELD, US_FED_RATE, GOVT_CAPEX_SPEND, USD_INR_FX]
+    aliases: [reliance, ril]
+    business_summary: Conglomerate spanning refining and petrochemicals (oil-to-chemicals), telecom (Jio), and retail.
+    revenue_segments: [oil-to-chemicals, telecom, retail, exploration]
+    raw_material_inputs: [brent crude]
+    geographic_exposure: India-led with global energy trading
+  - ticker: INFY
+    isin: INE009A01021
+    name: Infosys Ltd
+    sector: IT
+    exposures: []
+    macro_exposures: [USD_INR_FX, US_FED_RATE, INDIA_GDP_GROWTH, RBI_REPO_RATE, INDIA_CPI, INDIA_10Y_YIELD]
+    aliases: [infosys, infy]
+    business_summary: IT services exporter billing largely in USD; delivery from Indian offshore centres.
+    revenue_segments: [application services, infrastructure, engineering, consulting]
+    raw_material_inputs: [usd-inr forex]
+    geographic_exposure: US + Europe revenue, India delivery base

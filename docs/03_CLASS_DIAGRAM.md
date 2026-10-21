@@ -1,235 +1,268 @@
-# 02 — System Design, Database Schemas & Query Specifications
+# 03 — Class Diagram, Domain Models & Repository Interfaces
 
-## 1. End-to-End Architecture Diagram
+> Source of truth for Milestone 1+ code. `window=LAST_6M | LAST_1Y` only (no `from_date/to_date`, no all-time). Numerics are SQL-only via `ChartProviderAdapter`; graph holds news/snapshots/deals/holdings. Anomalies are SQL queries, never graph nodes.
 
-```text
-+-----------------------------------------------------------------------------------+
-|                        1. CRON SCHEDULER & INGESTION LAYER                        |
-|  [APScheduler / CLI Workers]                                                      |
-|   ├── StreamNewsIngestor    (Every 30m) : RSS Feeds + NSE/BSE Reg-30 Filings      |
-|   ├── DailyEODIngestor      (7:00 PM)   : Bhavcopy, FII/DII, Bulk/Insider, PE, FX |
-|   ├── PeriodicMacroIngestor (Monthly/BM): AMFI MF Holdings, CPI, RBI Repo, Sector |
-|   └── QuarterlyIngestor     (Quarterly) : XBRL P&L/BS/CF, Concall PDFs, SHP/Pledge|
-+-----------------------------------------+-----------------------------------------+
-                                          |
-                                          v
-+-----------------------------------------------------------------------------------+
-|                      2. PROCESSING & GRAPH EXTRACTION LAYER                       |
-|   ├── CanonicalEntityResolver : Maps raw strings -> NSE Ticker / ISIN / Macro ID  |
-|   ├── QuantAnomalyDetector    : Computes 20D Delivery Z-Score & 5Y PE Percentile  |
-|   └── NewsGraphExtractor (LLM): Extracts 1-Hop Stock vs 2-Hop Macro/Commodity Edge|
-+--------------------+-----------------------------------------+--------------------+
-                     |                                         |
-                     v (Continuous Numeric Series)             v (Causal Graph + Vector RAG)
-+----------------------------------------+ +----------------------------------------+
-|     3A. PERSISTENT RELATIONAL DB       | |     3B. UNIFIED GRAPH + VECTOR DB      |
-|     [PostgreSQL 16 + TimescaleDB]      | |              [FalkorDB]                |
-|  • daily_stock_metrics                 | |  • Static: Stock, Sector, Commodity,   |
-|  • daily_macro_and_flows               | |    Currency, MacroFactor               |
-|  • institutional_deals_raw             | |  • Point-in-Time: NewsEvent (vecf32),  |
-|  • monthly_mf_holdings_raw             | |    DailyAnomalyEvent, EXECUTED_DEAL    |
-|  • quarterly_financials                | |  • Validity-Interval: QuarterlySnapshot|
-|                                        | |    GuidanceChunk (vecf32), MF Holding  |
-+--------------------+-------------------+ +-------------------+--------------------+
-                     |                                         |
-                     +--------------------+--------------------+
-                                          |
-                                          v
-+-----------------------------------------------------------------------------------+
-|                 4. STOCK CONTEXT SERVICE (FastAPI + FastMCP Server)               |
-|   • Resolves [from_date, to_date] -> [start_ts, end_ts] (or [0, 9999999999])      |
-|   • Merges 1-Hop + 2-Hop FalkorDB Subgraph + Vector Chunks + SQL Quant Summary    |
-|   • Returns StockDossierResponse JSON to Upstream AI Agents / Phase 2 Bot         |
-+-----------------------------------------------------------------------------------+
+## 1. Mermaid OOP Class Diagram
+
+```mermaid
+classDiagram
+    class Window {
+        <<enumeration>>
+        LAST_6M
+        LAST_1Y
+    }
+    class Cadence {
+        <<enumeration>>
+        STREAM_30M
+        DAILY_OPEN
+        DAILY_EOD
+        MONTHLY
+        BIMONTHLY
+        QUARTERLY
+    }
+    class MarketSession {
+        <<enumeration>>
+        OPEN
+        CLOSE
+    }
+    class OntologyRelationType {
+        <<enumeration>>
+        EXPOSED_TO
+        SENSITIVE_TO_MACRO
+        BELONGS_TO
+        SUPPLIES_TO
+        COMPETES_WITH
+        RELATED_TO
+    }
+    class CorrelationType {
+        <<enumeration>>
+        CAUSAL_CHAIN
+        MACRO_CONTAGION
+        SECTOR_RIPPLE
+        FOLLOW_UP
+    }
+    class DossierRequest {
+        +str ticker
+        +Window window
+    }
+    class StockDossierResponse {
+        +str ticker
+        +Window window
+        +int start_ts
+        +int end_ts
+        +DirectNewsItem[] direct_news
+        +IndirectNewsItem[] indirect_news
+        +InstitutionalDealItem[] institutional_deals
+        +MFShiftItem[] mf_shifts
+        +QuarterlySnapshotItem[] quarterly_snapshots
+        +GuidanceChunkItem[] guidance_chunks
+        +QuantSummary quant_summary
+    }
+    class QuantSummary {
+        +str vendor_id
+        +datetime vendor_as_of
+        +float latest_open
+        +float latest_close
+        +float latest_delivery_pct
+        +float pe_5yr_percentile
+    }
+    class DirectNewsItem {
+        +str id
+        +str impact_type
+        +float confidence
+        +str rationale
+        +str[] correlated_news_ids
+    }
+    class IndirectNewsItem {
+        +str id
+        +str via_node
+        +str exposure_nature
+        +float exposure_confidence
+        +str exposure_rationale
+    }
+    class StockContextCard {
+        +str ticker
+        +str business_summary
+        +str[] revenue_segments
+        +str[] raw_material_inputs
+        +str geographic_exposure
+        +str latest_quarter_summary
+        +str[] latest_guidance_highlights
+        +str[] active_exposures
+    }
+    class InferredOntologyEdge {
+        +str source_id
+        +OntologyRelationType relation
+        +str target_id
+        +float confidence
+        +str rationale
+    }
+    class InferredNewsStockImpact {
+        +str news_id
+        +str ticker
+        +str impact_type
+        +float confidence
+        +str rationale
+    }
+    class InferredNewsCorrelation {
+        +str new_news_id
+        +str prior_news_id
+        +CorrelationType correlation_type
+        +float confidence
+        +str rationale
+        +int event_ts
+    }
+    class MacroFactorDetail {
+        +str id
+        +str description
+        +str why_it_moves
+        +str equity_transmission
+        +str default_scope
+    }
+    class StockProfileProvider {
+        +build_context_card(ticker: str) StockContextCard
+    }
+    class DynamicOntologyBuilder {
+        +infer_edges(card: StockContextCard) InferredOntologyEdge[]
+    }
+    class NewsCorrelator {
+        +correlate(news_id: str) InferredNewsCorrelation[]
+    }
+    class CanonicalEntityResolver {
+        +resolve_stock(raw: str) str
+        +resolve_registry(raw: str) str
+    }
+    class NewsDeduper {
+        +canonicalize_url(url: str) str
+        +deterministic_id(headline, ticker, date: str) str
+        +exact_seen(url_hash: str) bool
+        +near_dup_check(norm_headline, ticker, now_ts: int) dict
+        +semantic_link_or_create(props, embedding, ticker, now_ts: int) dict
+    }
+    class NewsGraphExtractor {
+        +extract(article: dict) EdgeSpec
+    }
+    class ChartProviderAdapter {
+        <<abstract>>
+        +get_eod_series(ticker, start, end: date) list
+        +get_macro_series(keys, start, end: date) list
+    }
+    class BasePeriodicMacroIngestor {
+        <<abstract>>
+        +ingest_macro_indicators() IngestionResult
+        +ingest_mf_holdings() IngestionResult
+    }
+    class VendorSyncService {
+        +sync_window(ticker, window: Window) IngestRun
+        +stage_raw(payload: dict) void
+        +normalize_window(ticker, window: Window) int
+    }
+    class FalkorGraphRAGRepository {
+        +ensure_indexes_and_constraints() list
+        +get_temporal_subgraph(ticker, start_ts, end_ts: int, limit: int) dict
+        +find_text_dup(norm_headline, ticker, window_secs: int) dict
+        +find_near_dup(embedding, ticker, now_ts: int) dict
+        +merge_news_event(props: dict, embedding: list) dict
+        +rotate_validity_interval_node(ticker, new_ts: int, new_props: dict) dict
+    }
+    class TimescaleRepository {
+        +init_schema() void
+        +get_daily_range(ticker, start, end: date, session_type: str) list
+        +get_anomalies(ticker, start, end: date) list
+        +get_monthly_aggregates(ticker, window: Window) list
+        +get_watermark(vendor_id, ticker, series: str) date
+        +advance_watermark(vendor_id, ticker, series: str, last_date: date) void
+    }
+    class SchedulerFactory {
+        +build() AsyncIOScheduler
+    }
+    class StockContextService {
+        +get_stock_dossier(ticker, window: Window) StockDossierResponse
+    }
+
+    DossierRequest --> Window : uses
+    StockDossierResponse --> QuantSummary : contains
+    StockContextService --> FalkorGraphRAGRepository : reads graph
+    StockContextService --> TimescaleRepository : reads SQL
+    StockContextService --> Window : resolve_window()
+    VendorSyncService --> ChartProviderAdapter : fetches via
+    VendorSyncService --> TimescaleRepository : stages/normalizes
+    NewsGraphExtractor --> CanonicalEntityResolver : resolves via
+    NewsGraphExtractor --> NewsDeduper : dedups via
+    NewsGraphExtractor --> StockContextCard : injects context
+    NewsGraphExtractor --> InferredNewsStockImpact : emits
+    DynamicOntologyBuilder --> StockContextCard : injects context
+    DynamicOntologyBuilder --> InferredOntologyEdge : emits
+    DynamicOntologyBuilder --> OntologyRelationType : labels via
+    NewsCorrelator --> InferredNewsCorrelation : emits
+    NewsCorrelator --> CorrelationType : labels via
+    StockProfileProvider --> StockContextCard : builds
+    StockDossierResponse --> DirectNewsItem : contains
+    StockDossierResponse --> IndirectNewsItem : contains
+    SchedulerFactory --> VendorSyncService : schedules
 ```
 
----
+## 2. Pydantic Models (`src/domain/schemas.py`, `src/domain/enums.py`)
 
-## 2. FalkorDB Graph Topology & How Everything Connects
+`Window(str, Enum)`: `LAST_6M`, `LAST_1Y`. `resolve_window(window) -> (start_ts, end_ts)` is IST-aware (`Asia/Kolkata` start-of-day → UTC epoch).
 
-```text
-                    +------------------------------------------+
-                    |              :NewsEvent                  |
-                    |  id, headline, summary, category         |
-                    |  sentiment (-1 to +1), event_ts: int     |
-                    |  embedding: vecf32(1536)                 |
-                    +----+----------------+---------------+----+
-                         |                |               |
-   [:DIRECTLY_IMPACTS]   |                | [:SHOCKS]     | [:IMPACTS_SECTOR /
-   (1-Hop Stock News)    |                v               v  :ALTERS_MACRO]
-                         |        +---------------+  +---------------+
-                         |        |  :Commodity   |  |    :Sector    |
-                         |        |  :Currency    |  |  :MacroFactor |
-                         |        | (BRENT_CRUDE, |  | (METALS, IT,  |
-                         |        |  HRC_STEEL,   |  |  RBI_REPO,    |
-                         |        |  USD_INR)     |  |  INDIA_CPI)   |
-                         |        +-------+-------+  +-------+-------+
-                         |                ^                  ^
-                         |                | [:EXPOSED_TO]    | [:BELONGS_TO /
-                         v                | (Static Seeded)  |  :SENSITIVE_TO_MACRO]
-+--------------------+  +-----------------+------------------+  +--------------------+
-| :DailyAnomalyEvent |<-+               :Stock               +->| :QuarterlySnapshot |
-| • metric_type      |  | ticker: "TATASTEEL"                |  | • quarter: "Q2FY27"|
-| • value, z_score   |  | isin: "INE081A01020"               |  | • rev_yoy_pct      |
-| • event_ts: int    |  | latest_pe, latest_pb, latest_ev_eb |  | • ebitda_margin    |
-+--------------------+  +-----------------+------------------+  | • pledge_pct       |
-                                          ^                     | • debt_to_equity   |
-            +-----------------------------+---------------+     | • fcf_cr           |
-            |                             |               |     | • valid_from_ts    |
-            | [:EXECUTED_DEAL]            | [:UPDATED_    |     | • valid_to_ts      |
-            | (Point-in-Time: event_ts)   |   HOLDING]    |     +---------+----------+
-            v                             v               v               | [:SUPERSEDES]
-+-----------------------+   +-----------------------+   +-----------------+-------+
-| :InstitutionalActor   |   | :MutualFundHouse      |   | :GuidanceChunk (Vector) |
-| • name                |   | • amc_id, name        |   | • concall_summary       |
-| • category (FII/PROM) |   | • Edge: valid_from_ts |   | • order_book_cr         |
-| • Edge: BULK/INSIDER  |   |   valid_to_ts, delta  |   | • valid_from_ts/to_ts   |
-+-----------------------+   +-----------------------+   +-------------------------+
+`MarketSession(str, Enum)`: `OPEN`, `CLOSE`. `DailyStockMetricItem` captures 2 session rows per day.
+
+`OntologyRelationType(str, Enum)`: `EXPOSED_TO`, `SENSITIVE_TO_MACRO`, `BELONGS_TO`, `SUPPLIES_TO`, `COMPETES_WITH`, `RELATED_TO` (commodity-to-commodity input/substitute links).
+
+`CorrelationType(str, Enum)`: `CAUSAL_CHAIN`, `MACRO_CONTAGION`, `SECTOR_RIPPLE`, `FOLLOW_UP`.
+
+`StockContextCard`: encapsulates a stock's fundamental profile (`business_summary`, `revenue_segments`, `raw_material_inputs`, `geographic_exposure`), `latest_quarter_summary`, `latest_guidance_highlights`, and `active_exposures` so the LLM always has complete company context when building ontology edges or routing news.
+
+`InferredOntologyEdge`, `InferredNewsStockImpact`, `InferredNewsCorrelation`: structured LLM output schemas enforcing confidence scores (`0.0–1.0`), explicit `rationale` / `causal_rationale`, and canonical entity validation. `InferredOntologyEdge.source_id` accepts a ticker (stock edge) or commodity ID (`RELATED_TO` inter-link).
+
+`MacroFactorDetail`: explainer card for a `:MacroFactor` node (`description`, `why_it_moves`, `equity_transmission`, `default_scope: BROAD | SELECTIVE`). Numeric series live in TimescaleDB; the *why-it-changed* narrative is sourced from official releases (MoSPI/RBI/Budget) + macro news via `(:NewsEvent)-[:ALTERS_MACRO]->(:MacroFactor)` — never fabricated.
+
+`DossierRequest(ticker, window)`; `StockDossierResponse` as diagrammed. `DirectNewsItem` includes `impact_type` (`DIRECTLY_IMPACTS | INDIRECTLY_IMPACTS`), `confidence`, `rationale`, and `correlated_news_ids: list[str]`. `IndirectNewsItem` includes `exposure_nature`, `exposure_confidence`, and `exposure_rationale`. `QuantSummary` always carries `vendor_id + vendor_as_of` plus `latest_open` and `latest_close`.
+
+Registry IDs (commodity/macro/sector) live in `src/config/ontology_seed.yaml`, not hardcoded enums; `enums.py` keeps `Window`, `Cadence`, `MarketSession`, `OntologyRelationType`, `CorrelationType`, `DealType/Side`, `ActorCategory`, `NewsCategory`. There is no `:Currency` node type — USD/INR forex is the `USD_INR_FX` macro factor.
+
+## 3. Repository & Service Interfaces
+
+```python
+class ChartProviderAdapter(ABC):
+    @abstractmethod
+    def get_eod_series(self, ticker: str, start: date, end: date) -> list[dict]: ...
+    @abstractmethod
+    def get_macro_series(self, keys: list[str], start: date, end: date) -> list[dict]: ...
+
+class BasePeriodicMacroIngestor(ABC):
+    @abstractmethod
+    async def ingest_macro_indicators(self) -> IngestionResult: ...
+    @abstractmethod
+    async def ingest_mf_holdings(self) -> IngestionResult: ...
+
+class FalkorGraphRAGRepository:
+    def ensure_indexes_and_constraints(self) -> list[str]: ...
+    def get_temporal_subgraph(self, ticker: str, start_ts: int, end_ts: int, limit: int = 50) -> dict: ...
+    def find_text_dup(self, norm_headline: str, ticker: str, window_secs: int) -> dict | None: ...
+    def find_near_dup(self, embedding: list[float], ticker: str, now_ts: int) -> dict | None: ...
+    def merge_news_event(self, props: dict, embedding: list[float] | None = None) -> dict: ...
+    def rotate_validity_interval_node(self, ticker: str, new_ts: int, new_props: dict) -> dict: ...
+
+class TimescaleRepository:
+    async def init_schema(self) -> None: ...
+    async def get_daily_range(self, ticker: str, start: date, end: date, session_type: str | None = None) -> list[Record]: ...
+    async def get_anomalies(self, ticker: str, start: date, end: date, threshold: float = 1.8) -> list[Record]: ...
+    async def get_monthly_aggregates(self, ticker: str, window: Window) -> list[Record]: ...
+    async def get_watermark(self, vendor_id: str, ticker: str, series: str) -> date | None: ...
+    async def advance_watermark(self, vendor_id: str, ticker: str, series: str, last_date: date) -> None: ...
+
+class SchedulerFactory:
+    @staticmethod
+    def build(dsn: str, redis_url: str) -> AsyncIOScheduler:
+        """Durable jobstore + coalesce=True, max_instances=1, misfire_grace_time=300.
+        Each job body takes a Redis NX lock and logs to ingest_runs."""
 ```
 
----
+## 4. Method-Signature Notes
 
-## 3. FalkorDB Initialization & OpenCypher Query Templates
-
-### 3.1 Index Creation Cypher Script
-Run on service startup in `FalkorGraphRAGRepository.ensure_indexes_and_constraints()`:
-```cypher
-CREATE INDEX FOR (s:Stock) ON (s.ticker);
-CREATE INDEX FOR (c:Commodity) ON (c.id);
-CREATE INDEX FOR (fx:Currency) ON (fx.id);
-CREATE INDEX FOR (m:MacroFactor) ON (m.id);
-CREATE INDEX FOR (sec:Sector) ON (sec.id);
-
-// Temporal Range Indexes
-CREATE INDEX FOR (n:NewsEvent) ON (n.event_ts);
-CREATE INDEX FOR (a:DailyAnomalyEvent) ON (a.event_ts);
-CREATE INDEX FOR (q:QuarterlySnapshot) ON (q.valid_from_ts);
-CREATE INDEX FOR (q:QuarterlySnapshot) ON (q.valid_to_ts);
-CREATE INDEX FOR (g:GuidanceChunk) ON (g.valid_from_ts);
-CREATE INDEX FOR (g:GuidanceChunk) ON (g.valid_to_ts);
-
-// Vector Indexes for Semantic RAG
-CREATE VECTOR INDEX FOR (n:NewsEvent) ON (n.embedding) OPTIONS {dimension: 1536, similarityFunction: 'cosine'};
-CREATE VECTOR INDEX FOR (g:GuidanceChunk) ON (g.embedding) OPTIONS {dimension: 1536, similarityFunction: 'cosine'};
-```
-
-### 3.2 Master Temporal Subgraph Retrieval Query
-Used by `StockContextService.get_stock_dossier()` for both date-bounded (`[from_date, to_date]`) and unfiltered (`[0, 9999999999]`) requests:
-```cypher
-MATCH (s:Stock {ticker: $ticker})
-
-// 1. Direct 1-Hop News in [start_ts, end_ts]
-OPTIONAL MATCH (n1:NewsEvent)-[r1:DIRECTLY_IMPACTS]->(s)
-WHERE n1.event_ts >= $start_ts AND n1.event_ts <= $end_ts
-
-// 2. Indirect 2-Hop Contagion News (via Commodity, Currency, Sector, Macro) in [start_ts, end_ts]
-OPTIONAL MATCH (s)-[exp:EXPOSED_TO|BELONGS_TO|SENSITIVE_TO_MACRO]->(bridge)<-[r2:SHOCKS|IMPACTS_SECTOR|ALTERS_MACRO]-(n2:NewsEvent)
-WHERE n2.event_ts >= $start_ts AND n2.event_ts <= $end_ts
-
-// 3. Daily Quant Anomalies in [start_ts, end_ts]
-OPTIONAL MATCH (s)-[:TRIGGERED_ANOMALY]->(anom:DailyAnomalyEvent)
-WHERE anom.event_ts >= $start_ts AND anom.event_ts <= $end_ts
-
-// 4. Bulk, Block & Insider Deals in [start_ts, end_ts]
-OPTIONAL MATCH (inst:InstitutionalActor)-[deal:EXECUTED_DEAL]->(s)
-WHERE deal.event_ts >= $start_ts AND deal.event_ts <= $end_ts
-
-// 5. Monthly Mutual Fund Holdings Overlapping [start_ts, end_ts]
-OPTIONAL MATCH (mf:MutualFundHouse)-[mh:UPDATED_HOLDING]->(s)
-WHERE mh.valid_from_ts <= $end_ts AND mh.valid_to_ts >= $start_ts
-
-// 6. Quarterly Snapshots & Guidance Overlapping [start_ts, end_ts]
-OPTIONAL MATCH (s)-[:HAS_QTR_STATE]->(qtr:QuarterlySnapshot)
-WHERE qtr.valid_from_ts <= $end_ts AND qtr.valid_to_ts >= $start_ts
-
-OPTIONAL MATCH (s)-[:ISSUED_GUIDANCE]->(gd:GuidanceChunk)
-WHERE gd.valid_from_ts <= $end_ts AND gd.valid_to_ts >= $start_ts
-
-RETURN s,
-       collect(DISTINCT {id: n1.id, date: n1.event_date, ts: n1.event_ts, headline: n1.headline, summary: n1.summary, category: n1.category, sentiment: r1.sentiment}) AS direct_news,
-       collect(DISTINCT {id: n2.id, date: n2.event_date, ts: n2.event_ts, via_node: bridge.id, exposure_type: exp.type, margin_impact: exp.margin_impact, headline: n2.headline, sentiment: r2.sentiment}) AS indirect_news,
-       collect(DISTINCT properties(anom)) AS daily_anomalies,
-       collect(DISTINCT {actor: inst.name, actor_cat: inst.category, deal_type: deal.deal_type, side: deal.side, qty: deal.qty, value_cr: deal.value_cr, date: deal.event_date, ts: deal.event_ts}) AS institutional_deals,
-       collect(DISTINCT {amc: mf.name, month: mh.month, delta_stake_pct: mh.delta_stake_pct, from_ts: mh.valid_from_ts}) AS mf_shifts,
-       collect(DISTINCT properties(qtr)) AS quarterly_snapshots,
-       collect(DISTINCT {id: gd.id, quarter: gd.quarter, concall_summary: gd.concall_summary, order_book_cr: gd.order_book_cr, from_ts: gd.valid_from_ts}) AS guidance_chunks
-```
-
-### 3.3 Bi-Temporal Validity Rotation Query (`rotate_validity_interval_node`)
-When a new quarter's results or guidance arrives at `valid_from_ts = $new_ts`:
-```cypher
-MATCH (s:Stock {ticker: $ticker})
-OPTIONAL MATCH (s)-[r_old:HAS_QTR_STATE]->(old_q:QuarterlySnapshot {is_latest: true})
-SET old_q.is_latest = false,
-    old_q.valid_to_ts = $new_ts - 1
-CREATE (new_q:QuarterlySnapshot $new_props)
-SET new_q.valid_from_ts = $new_ts,
-    new_q.valid_to_ts = 9999999999,
-    new_q.is_latest = true
-CREATE (s)-[:HAS_QTR_STATE]->(new_q)
-FOREACH (_ IN CASE WHEN old_q IS NOT NULL THEN [1] ELSE [] END |
-    CREATE (new_q)-[:SUPERSEDES]->(old_q)
-)
-RETURN new_q
-```
-
----
-
-## 4. PostgreSQL / TimescaleDB DDL Schema
-
-```sql
-CREATE EXTENSION IF NOT EXISTS timescaledb;
-
-CREATE TABLE daily_stock_metrics (
-    trade_date DATE NOT NULL,
-    ticker VARCHAR(20) NOT NULL,
-    open_price NUMERIC(12, 2),
-    high_price NUMERIC(12, 2),
-    low_price NUMERIC(12, 2),
-    close_price NUMERIC(12, 2) NOT NULL,
-    volume BIGINT NOT NULL,
-    delivery_qty BIGINT NOT NULL,
-    delivery_pct NUMERIC(5, 2) NOT NULL,
-    delivery_20d_avg NUMERIC(5, 2),
-    delivery_20d_zscore NUMERIC(6, 2),
-    pe_ratio NUMERIC(8, 2),
-    pb_ratio NUMERIC(8, 2),
-    ev_ebitda NUMERIC(8, 2),
-    pe_5yr_percentile NUMERIC(5, 2),
-    PRIMARY KEY (trade_date, ticker)
-);
-
-SELECT create_hypertable('daily_stock_metrics', 'trade_date', if_not_exists => TRUE);
-
-CREATE TABLE daily_macro_and_flows (
-    trade_date DATE NOT NULL PRIMARY KEY,
-    brent_crude_usd NUMERIC(10, 2),
-    hrc_steel_inr NUMERIC(12, 2),
-    coking_coal_usd NUMERIC(10, 2),
-    usd_inr NUMERIC(8, 4),
-    fii_net_cash_cr NUMERIC(12, 2),
-    dii_net_cash_cr NUMERIC(12, 2)
-);
-
-CREATE TABLE quarterly_financials (
-    ticker VARCHAR(20) NOT NULL,
-    quarter_label VARCHAR(10) NOT NULL,
-    published_date DATE NOT NULL,
-    valid_from_ts BIGINT NOT NULL,
-    revenue_cr NUMERIC(14, 2),
-    rev_yoy_pct NUMERIC(6, 2),
-    ebitda_cr NUMERIC(14, 2),
-    ebitda_margin_pct NUMERIC(6, 2),
-    pat_cr NUMERIC(14, 2),
-    pat_yoy_pct NUMERIC(6, 2),
-    debt_to_equity NUMERIC(6, 2),
-    operating_cash_flow_cr NUMERIC(14, 2),
-    free_cash_flow_cr NUMERIC(14, 2),
-    order_book_cr NUMERIC(14, 2),
-    promoter_holding_pct NUMERIC(5, 2),
-    promoter_pledge_pct NUMERIC(5, 2),
-    fii_holding_pct NUMERIC(5, 2),
-    dii_holding_pct NUMERIC(5, 2),
-    PRIMARY KEY (ticker, quarter_label)
-);
-```
+- `get_temporal_subgraph` implements `docs/02 §3.2` (canonical news only, per-section `LIMIT`, no anomaly branch). Section limits are ints clamped to 1–200 and rendered as literal `LIMIT {n}` — FalkorDB rejects parameterized `LIMIT`/`SKIP`.
+- `NewsDeduper` methods implement `docs/02 §3.3–§3.4`: L2 `near_dup_check` (normalized headline, `dedup_window_hours`, no embedding spent) and L3 `semantic_link_or_create` (`db.idx.vector.queryNodes`, cosine > `dedup_cosine_threshold` → `[:DUPLICATE_OF]`).
+- `get_anomalies` is `WHERE abs(delivery_20d_zscore) >= 1.8` over the resolved window — the only anomaly API. No graph writes.
+- `rotate_validity_interval_node` closes the prior node, creates the new one, and links `[:SUPERSEDES]` in separate statements (no `FOREACH`); each statement projects scalar business ids and the method returns `{"new_id", "old_id"}`; must run under the job's Redis lock.

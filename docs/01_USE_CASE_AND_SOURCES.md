@@ -1,37 +1,50 @@
 # 01 — Project Use Case, Problem Statement & Data Source Playbook
 
 ## 1. Detailed Problem Statement
-Equity research and algorithmic swing trading require synthesizing two fundamentally different types of information:
+Equity research and algorithmic swing trading require synthesizing three fundamentally interconnected layers of information:
 1. **Explicit Direct Information:** Earnings releases, order book updates, insider buying, bulk deals, and delivery volume spikes directly on a stock (`TATASTEEL`).
-2. **Implicit 2nd-Order Contagion:** Global commodity shocks (e.g., Coking Coal or Brent Crude spiking), currency moves (`USD/INR`), regulatory shifts (RBI Repo Rate changes, import duties), or geopolitical events (Red Sea freight disruptions).
+2. **Implicit 2nd-Order & Supply-Chain Contagion:** Global commodity shocks (e.g., Coking Coal or Brent Crude spiking), forex moves (`USD/INR` as a `:MacroFactor`), regulatory shifts (RBI Repo Rate changes, import duties), or geopolitical events (Red Sea freight disruptions) whose impact depends on each company's specific business model, raw material mix, and revenue geography.
+3. **Cross-Event Narrative Chains:** Unfolding multi-day stories where an initial macro/commodity or peer event correlates with subsequent sector announcements, company margin warnings, or regulatory responses.
 
 ### Why Existing Approaches Fail
 - **Traditional SQL Databases:** Cannot traverse multi-hop relationships (e.g., *"Which stocks in my universe suffer margin compression when Brent Crude rises >5%?"*) without brittle, hardcoded join tables.
+- **Static Hand-Coded Knowledge Graphs:** Require manual maintenance of thousands of stock-to-commodity and stock-to-macro edges that quickly go stale as companies diversify, hedge, add captive mines, or shift geographies.
 - **Standard Vector RAG:**
-  1. Cannot connect an article about *"China infrastructure stimulus lifting HRC Steel prices"* to `TATASTEEL` if the string `"Tata Steel"` is absent from the article.
+  1. Cannot connect an article about *"China infrastructure stimulus lifting HRC Steel prices"* to `TATASTEEL` if the string `"Tata Steel"` is absent from the article and the LLM lacks the company's fundamental profile.
   2. Suffers from **Temporal Collapse**: retrieves outdated Q1 guidance alongside Q3 guidance because both match the semantic embedding for *"revenue guidance"*.
-  3. Fails at **Time-Bounded Queries**: cannot reliably reconstruct what the market knew strictly between `2025-10-15` and `2026-10-15`.
+  3. Treats news articles as isolated islands rather than linking correlated unfolding events (`[:CORRELATED_WITH]`).
+  4. Fails at **Time-Bounded Queries**: cannot reliably reconstruct what the market knew in the last 6/12 months. Our dossier fixes this with fixed `window=LAST_6M | LAST_1Y` bounds plus validity-interval overlap.
 
 ---
 
 ## 2. How Our Solution Works (The End-to-End Flow)
 
-### Flow A: Scheduled Background Ingestion (The Cron Pipeline)
-1. **Cron Triggers:** Scheduled workers wake up at specific intervals (every 30m for news, 7:00 PM IST daily for EOD exchange files, monthly for MF/Inflation, and quarterly for earnings).
-2. **Dual Routing:**
-   - **Numeric Time-Series -> PostgreSQL/TimescaleDB:** Daily Delivery %, P/E, P/B, EV/EBITDA, FII/DII flows, and raw financial tables are upserted into SQL.
-   - **Anomalies & Qualitative Catalysts -> FalkorDB:**
-     - If `QuantAnomalyDetector` spots an abnormal Delivery % spike (e.g., Z-score > 1.8), it writes a `:DailyAnomalyEvent` node to FalkorDB.
-     - When `NewsGraphExtractor` processes a news article, it resolves entities via `CanonicalEntityResolver`, generates a vector embedding, and links the `:NewsEvent` either **1-Hop directly** to a `:Stock` or **2-Hop indirectly** to a `:Commodity`, `:Currency`, `:Sector`, or `:MacroFactor`.
-     - When Monthly MF or Quarterly Guidance/Results arrive, `FalkorGraphRAGRepository` closes the validity interval (`valid_to_ts`) of the previous period's node and attaches the new node with `is_latest = true`.
+### Flow A: Dynamic LLM-Driven Ontology Construction (`DynamicOntologyBuilder`)
+1. **Canonical Node Registry + Curated Static Edges:** `src/config/ontology_seed.yaml` defines canonical node IDs (`:Stock`, `:Commodity` with `RELATED_TO` inter-links, `:MacroFactor` with explainers, `:Sector` — no `:Currency` nodes; USD/INR forex is the `USD_INR_FX` macro factor), rich **Stock Profiles** (`business_summary`, `revenue_segments`, `raw_material_inputs`, `geographic_exposure`), and a deliberately small, operator-curated set of static edges in exactly three categories: per-stock `macro_exposures` + `BROAD` macro baseline (`SENSITIVE_TO_MACRO`), per-stock `exposures` commodity lists (`EXPOSED_TO`), and commodity `related_ids` inter-links (`RELATED_TO`). No other edge may be hand-declared; all remaining ontology edges are LLM-inferred (Rule 4).
+2. **Stock Context Injection (`StockProfileProvider`):** For any stock, `StockProfileProvider` assembles a `StockContextCard` combining its seeded business profile, its latest `:QuarterlySnapshot` (margins, leverage), its latest `:GuidanceChunk` highlights (from concalls/presentations), and its currently active graph edges.
+3. **LLM Edge Discovery:** Given a stock's `StockContextCard` and the canonical catalog of Commodities, MacroFactors, Sectors, and peer Stocks, `DynamicOntologyBuilder` prompts the LLM to infer which relationships (`[:EXPOSED_TO]`, `[:SENSITIVE_TO_MACRO]`, `[:BELONGS_TO]`, `[:SUPPLIES_TO]`, `[:COMPETES_WITH]`, plus `[:RELATED_TO]` for commodity-to-commodity input/substitute links) exist, along with `exposure_nature`, `margin_impact` (`POSITIVE|NEGATIVE|MIXED`), `sensitivity`, `confidence`, and `rationale`.
+4. **Continuous Evolution:** Whenever new Quarterly Concall / Filing RAG chunks arrive, `DynamicOntologyBuilder` re-evaluates the stock's `StockContextCard`, closing outdated exposure edges (`valid_to_ts`) and upserting newly discovered relationships.
 
-### Flow B: Downstream Agent Query (The Context Service)
+### Flow B: Scheduled Background Ingestion (The Cron Pipeline)
+1. **Cron Triggers:** No realtime/websockets. The **30-minute cron runs news-only** (RSS + NSE/BSE Reg-30 filings). Price series record **two daily checkpoints per ticker**: Market Open (~9:30 AM IST) and Market Close (~7:00 PM IST with Bhavcopy delivery). Monthly MF/macro feeds are defined as abstract interfaces with pending implementation.
+2. **Dual Routing:**
+   - **Numeric Time-Series -> PostgreSQL/TimescaleDB:** Stored as two daily snapshot rows per ticker (`OPEN` session for open price/sentiment; `CLOSE` session for close price, official Bhavcopy delivery volume/%, and calculated 20d z-scores). Frontend UI embeds **TradingView Lightweight Charts** directly in the browser; backend does not store heavy intraday tick or minute data. NSE Bhavcopy (`sec_bhavdata_full.csv`) is the **primary source** for Delivery % and turnover.
+   - **Qualitative Catalysts -> FalkorDB (L1–L3 Dedup + Context-Aware Routing + L4 Correlation):**
+     - **L1 exact at ingestion:** canonicalize the URL, check Redis `SETNX seen:<url_hash>`, then `MERGE` a deterministic `(:NewsEvent)` id (`sha1(headline + primary_entity + date)`). Exact hits are dropped before any LLM/embedding work.
+     - **L2 near-dup before chunking:** normalized-headline comparison within the 48h window. Matches link `[:DUPLICATE_OF]` — no chunking or embedding is spent.
+     - **L3 semantic during vector storage:** embed, run the 48h vector search using `vecf32($embedding)`, and link `[:DUPLICATE_OF]` when cosine >= `dedup_cosine_threshold` (0.92) instead of creating impact edges. Earliest item stays canonical; source priority Reg-30 > BSE > NSE > media.
+     - **Context-Aware LLM News-to-Stock Routing (`NewsGraphExtractor`):** For every canonical news item, `StockProfileProvider.shortlist_candidate_stocks()` retrieves candidate stocks via (a) explicit alias resolution, (b) vector similarity between the article embedding and `:Stock.profile_embedding`, and (c) stocks exposed to any commodity/macro mentioned in the article. The LLM receives the news article **plus the `StockContextCard` of each candidate stock** and decides which stocks are impacted (`[:DIRECTLY_IMPACTS]` or `[:INDIRECTLY_IMPACTS]` with `causal_rationale`, `sentiment`, `confidence`) and which `:Commodity` / `:MacroFactor` / `:Sector` nodes are shocked (`[:SHOCKS]`, `[:ALTERS_MACRO]`, `[:IMPACTS_SECTOR]`).
+     - **L4 Cross-News Correlation (`NewsCorrelator`):** Queries canonical `:NewsEvent` nodes in the trailing `correlation_window_days` (14d) with cosine in `[0.68, 0.92)` or overlapping impacted entities. The LLM links correlated unfolding events via `(:NewsEvent)-[:CORRELATED_WITH {correlation_type, confidence, rationale, event_ts}]->(:NewsEvent)`.
+     - **Validity-Interval Rotation:** When Monthly MF or Quarterly Guidance/Results arrive, `FalkorGraphRAGRepository` closes the validity interval (`valid_to_ts`) of the previous period's node, attaches the new node with `is_latest = true`, and triggers `DynamicOntologyBuilder` to refresh the stock's dynamic exposures.
+   - **Anomalies stay SQL-only:** delivery z-scores and valuation percentiles are computed columns/queries on `CLOSE` session (`WHERE session_type = 'CLOSE' AND abs(z) >= 1.8`). No `:DailyAnomalyEvent` nodes.
+
+### Flow C: Downstream Agent Query (The Context Service)
 1. An external agent (e.g., Phase 2 Trading Bot or Research Agent) calls:
-   `GET /api/v1/stocks/TATASTEEL/dossier?from_date=2025-10-15&to_date=2026-10-15` (or omits dates for all-time history).
-2. `StockContextService` converts the dates into UTC epoch bounds `[start_ts, end_ts]` (`[0, 9999999999]` if unfiltered).
+   `GET /api/v1/stocks/TATASTEEL/dossier?window=LAST_6M` (or `window=LAST_1Y`). No arbitrary dates, no all-time mode.
+2. `StockContextService` resolves the window IST-aware into UTC epoch bounds `[start_ts, end_ts]`.
 3. It runs two parallel async queries:
-   - **FalkorDB Query:** Traverses 1-hop direct news, 2-hop commodity/currency/macro/sector news, institutional deals, daily anomalies, and validity-interval quarterly/guidance nodes active within `[start_ts, end_ts]`.
-   - **TimescaleDB Query:** Fetches the valuation percentile, delivery trend, and price/volume summary for `[start_ts, end_ts]`.
+   - **FalkorDB Query:** Traverses LLM-routed 1-hop news (`DIRECTLY_IMPACTS`, `INDIRECTLY_IMPACTS`), 2-hop contagion news across dynamic LLM-discovered exposures (`EXPOSED_TO`, `SENSITIVE_TO_MACRO`, `BELONGS_TO`, `SUPPLIES_TO`), correlated news chains (`CORRELATED_WITH`), institutional deals, and validity-interval quarterly/guidance nodes active within `[start_ts, end_ts]` (per-section `LIMIT`, canonical news only).
+   - **TimescaleDB Query:** Fetches normalized vendor-backed valuation percentile, delivery trend, and price/volume summary for `[start_ts, end_ts]`, each value citing `vendor_id + vendor_as_of`.
 4. Returns a single deterministic, time-sorted `StockDossierResponse` JSON.
 
 ---
@@ -40,15 +53,23 @@ Equity research and algorithmic swing trading require synthesizing two fundament
 
 | # | Data Point | Cadence & Cron Time (IST) | Primary Source / Format | Storage Target | Graph Mapping in FalkorDB |
 | :--- | :--- | :--- | :--- | :--- | :--- |
-| **1** | **News, Geopolitics & Reg-30 Filings** | Every 30 mins (`*/30 * * * *`) | NSE/BSE Corporate Announcements API, Financial RSS feeds | **FalkorDB** (Vector + Graph) | `(:NewsEvent)` -> `[:DIRECTLY_IMPACTS]` -> `(:Stock)` OR `[:SHOCKS]` -> `(:Commodity/:MacroFactor)` |
-| **2** | **Delivery % & Volume** | Daily EOD (`19:00 IST`) | NSE/BSE EOD Bhavcopy CSV (`MTO_*.DAT` / UDiFF CSV) | **TimescaleDB** (All) + **FalkorDB** (Anomalies) | If 20D Z-Score >= 1.8: `(:Stock)-[:TRIGGERED_ANOMALY]->(:DailyAnomalyEvent)` |
-| **3** | **FII & DII Provisional Flows** | Daily EOD (`19:30 IST`) | NSE FII/DII Provisional Cash & SEBI/NSDL FPI daily reports | **TimescaleDB** + **FalkorDB** | Updates `(:MarketRegime)` daily flow node & links institutional liquidity state |
+| **1** | **News, Geopolitics & Reg-30 Filings** | Every 30 mins (`*/30 * * * *`, news-only) | NSE/BSE Corporate Announcements API, Financial RSS feeds | **FalkorDB** (Vector + Graph) | LLM (with `StockContextCard`s) routes `(:NewsEvent)` -> `[:DIRECTLY_IMPACTS \| :INDIRECTLY_IMPACTS]` -> `(:Stock)` and `[:SHOCKS \| :ALTERS_MACRO]` -> `(:Commodity/:MacroFactor)`; links related news via `[:CORRELATED_WITH]`; near-dups `[:DUPLICATE_OF]` -> canonical |
+| **2** | **Delivery % & Volume** | Daily EOD sync (`19:00 IST`) | NSE Bhavcopy (`sec_bhavdata_full.csv` from archives) primary; vendor staged fallback | **TimescaleDB only** (stored in `CLOSE` session row, SQL-computed z-score; no graph node) | — |
+| **3** | **FII & DII Provisional Flows** | Daily EOD vendor sync (`19:30 IST`) | Generic chart vendor API (staged); NSE/SEBI reports fallback | **TimescaleDB only** | — |
 | **4** | **Bulk, Block & Insider Deals** | Daily EOD (`20:00 IST`) | NSE/BSE Bulk & Block CSVs + SEBI SAST Reg 7(2) Insider CSV | **TimescaleDB** + **FalkorDB** | `(:InstitutionalActor)-[:EXECUTED_DEAL {deal_type, side, value_cr, event_ts}]->(:Stock)` |
-| **5** | **Valuation Ratios (P/E, P/B, EV/EBITDA)** | Daily EOD (`20:15 IST`) | NSE Index/Equity valuation files + Computed from trailing 4Q XBRL EPS/EBITDA | **TimescaleDB** (Series) + **FalkorDB** (Latest) | Updates latest valuation & 5Y percentile on `(:Stock)` node; logs extreme valuation anomalies |
-| **6** | **Raw Materials & Currency (Crude, Steel, USD/INR)** | Daily EOD (`21:00 IST`) | Yahoo Finance / FRED / FBIL Reference Rate / MCX EOD | **TimescaleDB** (Series) + **FalkorDB** (Shocks) | Updates `(:Commodity)` & `(:Currency)` nodes; creates `:NewsEvent` shock edge if 1D/5D move > threshold |
-| **7** | **Sectoral Business Updates** | Monthly (`1st–5th of Month`) | BSE/NSE Monthly Business Update filings (Auto sales, Cement, Power) | **FalkorDB** (Vector + Graph) | `(:NewsEvent {category: "SECTOR_UPDATE"})-[:IMPACTS_SECTOR]->(:Sector)` |
-| **8** | **Mutual Fund Portfolio Disclosures** | Monthly (`12th of Month`) | AMFI / AMC Monthly Portfolio Excel/CSV disclosures | **TimescaleDB** + **FalkorDB** | `(:MutualFundHouse)-[:UPDATED_HOLDING {delta_stake_pct, valid_from_ts, valid_to_ts}]->(:Stock)` |
-| **9** | **Macro Data (CPI Inflation, RBI Repo Rate)** | Monthly (12th) & Bi-Monthly (RBI MPC schedule) | MoSPI CPI Release & RBI Monetary Policy Statements | **TimescaleDB** + **FalkorDB** | `(:NewsEvent)-[:ALTERS_MACRO {stance}]->(:MacroFactor)<-[:SENSITIVE_TO_MACRO]-(:Stock)` |
+| **5** | **Valuation Ratios (P/E, P/B, EV/EBITDA)** | Daily EOD vendor sync (`20:15 IST`) | Generic chart vendor API (staged); computed trailing-4Q fallback | **TimescaleDB only** (series + percentile; no graph node) | Dossier cites `vendor_id + vendor_as_of` |
+| **6** | **Raw Materials, FX & Macro Drivers (Crude, Steel, USD/INR, GDP, Yields, Govt Capex)** | Daily EOD vendor sync (`21:00 IST`) for Crude/Steel/FX; Monthly/BM official releases (MoSPI CPI, RBI MPC) + Budget for GDP/Capex | **TimescaleDB** (numeric series) + **FalkorDB** (`:Commodity` with `RELATED_TO` inter-links, `:MacroFactor` with `description/why_it_moves/equity_transmission`) | `(:Stock)-[:EXPOSED_TO]->(:Commodity)` starts from the curated per-stock `exposures` list seeded from `ontology_seed.yaml` and is refined/extended dynamically by `DynamicOntologyBuilder` using `StockContextCard`; BROAD macros (`GDP`, yields, repo, Fed, capex) are permanently `(:Stock)-[:SENSITIVE_TO_MACRO]->(:MacroFactor)`; shocks arrive as `(:NewsEvent)-[:SHOCKS | :ALTERS_MACRO]` edges |
+| **7** | **Sectoral Business Updates** | Monthly (`1st–5th of Month`) | BSE/NSE Monthly Business Update filings (Auto sales, Cement, Power) | **FalkorDB** (Vector + Graph) | `(:NewsEvent {category: "SECTOR_UPDATE"})-[:IMPACTS_SECTOR]->(:Sector)` + LLM-routed stock edges |
+| **8** | **Mutual Fund Portfolio Disclosures** | Monthly (`12th of Month`) | AMFI / AMC Monthly disclosures (abstract interface `BasePeriodicMacroIngestor`, implementation pending) | **TimescaleDB** + **FalkorDB** | `(:MutualFundHouse)-[:UPDATED_HOLDING {delta_stake_pct, valid_from_ts, valid_to_ts}]->(:Stock)` |
+| **9** | **Macro Data (GDP, CPI, RBI Repo, 10Y Yield, Fed Rate, Govt Capex)** | Monthly (12th) & Bi-Monthly (RBI MPC schedule) | MoSPI (GDP/CPI) & RBI MPC + Budget documents; vendor macro series staged (abstract interface `BasePeriodicMacroIngestor`, implementation pending) | **TimescaleDB** (series) + **FalkorDB** (`:MacroFactor` explainer nodes) | `(:NewsEvent)-[:ALTERS_MACRO {stance}]->(:MacroFactor)<-[:SENSITIVE_TO_MACRO]-(:Stock)`; *why-it-moved* narrative (`why_it_moves`) sourced from official releases + macro news, *not* fabricated |
 | **10** | **Quarterly Financial Results (P&L)** | Quarterly (`Jan, Apr, Jul, Oct-Nov`) | NSE/BSE XBRL Financial Result XML/JSON filings | **TimescaleDB** + **FalkorDB** | `(:Stock)-[:HAS_QTR_STATE]->(:QuarterlySnapshot {valid_from_ts, valid_to_ts})` |
-| **11** | **Management Guidance & Order Book** | Quarterly (Post-Results) | NSE/BSE Investor Presentations & Earnings Call Transcripts (PDF) | **FalkorDB** (Vector RAG) | `(:Stock)-[:ISSUED_GUIDANCE]->(:GuidanceChunk {embedding, order_book_cr, valid_from_ts, valid_to_ts})` |
+| **11** | **Management Guidance, Concalls & Dynamic Ontology Refresh** | Quarterly (Post-Results) | NSE/BSE Investor Presentations & Earnings Call Transcripts (PDF) | **FalkorDB** (Vector RAG + Dynamic Edges) | `(:Stock)-[:ISSUED_GUIDANCE]->(:GuidanceChunk {embedding, order_book_cr, valid_from_ts, valid_to_ts})`; triggers `DynamicOntologyBuilder` to update `[:EXPOSED_TO]` / `[:SENSITIVE_TO_MACRO]` edges |
 | **12** | **Shareholding Pattern & Balance Sheet / Cash Flow** | Quarterly (SHP) & Semi-Annual (BS/CF) | NSE/BSE Reg-31 Shareholding XBRL + Semi-Annual/Annual XBRL BS/CF | **TimescaleDB** + **FalkorDB** | Stored in `:QuarterlySnapshot` (`promoter_pledge_pct`, `debt_to_equity`, `fcf_cr`); creates `:GovernanceRisk` edge if pledge spikes |
+
+---
+
+## 4. Vendor Selection Criteria & Frontend Charting (TradingView)
+The UI embeds **TradingView Lightweight Charts** directly in the browser for candlestick chart visualization. In the backend, the chart vendor is accessed through `ChartProviderAdapter` (generic, swappable, e.g. Upstox) to capture the 2 daily session checkpoints (`OPEN` and `CLOSE`). Official exchange Bhavcopy (`sec_bhavdata_full.csv`) is the **primary source** for security-wise delivery volume and percentage. TimescaleDB stores only lightweight checkpoint rows, never heavy intraday tick or minute data.
+
+## 5. Backfill Watermark Protocol & Configurable Thresholds
+`vendor_sync_state (vendor_id, ticker, series, last_trade_date, last_fetched_at)` records the last data pushed per series. Each sync compares the vendor response against the watermark and inserts only rows with `trade_date > last_trade_date`, then advances the watermark. Revisions arrive as new vintages (immutable staging, never overwrite); gaps or vendor errors are logged to `ingest_runs` for replay. Dedup, correlation, and ontology confidence thresholds (`dedup_cosine_threshold=0.92`, `dedup_window_hours=48`, `correlation_min_cosine=0.68`, `correlation_window_days=14`, `ontology_min_confidence=0.65`) live in settings, never hardcoded.

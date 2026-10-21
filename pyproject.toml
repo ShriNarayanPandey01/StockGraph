@@ -1,0 +1,57 @@
+[project]
+name = "stock-graphrag-engine"
+version = "0.1.0"
+description = "Temporal GraphRAG + Time-Series Stock Intelligence Platform for Indian Equities (Phase 1: ingestion + context service)"
+readme = "README.md"
+requires-python = ">=3.12"
+authors = [{ name = "StockGraph" }]
+dependencies = [
+    "fastapi>=0.115",
+    "uvicorn[standard]>=0.30",
+    "falkordb>=1.1.8",
+    "asyncpg>=0.29",
+    "pydantic>=2.7",
+    "pydantic-settings>=2.3",
+    "apscheduler>=3.10,<4",
+    "python-dateutil>=2.9",
+    "pyyaml>=6.0",
+    "redis>=5.0",
+    "sqlalchemy[asyncio]>=2.0",
+    "tzdata>=2024.1",
+    # Issue 1 mitigation: LLM/embedding layer (all imports confined to src/llm/).
+    "litellm>=1.52",
+    "openai>=1.30",
+    "tiktoken>=0.7",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8.0",
+    "pytest-asyncio>=0.23",
+    "ruff>=0.5",
+    "mypy>=1.10",
+    "httpx>=0.27",
+]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src"]
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+testpaths = ["tests"]
+
+[tool.ruff]
+target-version = "py312"
+line-length = 100
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP"]
+ignore = ["UP042", "E501"]
+
+[tool.mypy]
+python_version = "3.12"
+ignore_missing_imports = true
