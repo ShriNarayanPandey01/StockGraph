@@ -1,5 +1,7 @@
 # 02 — System Design, Database Schemas & Query Specifications
 
+> **Current deployment architecture:** Read [docs/04_SERVICE_BOUNDARIES.md](04_SERVICE_BOUNDARIES.md) first. It supersedes the legacy single-service layout, combined dossier, selective macro baseline, YAML runtime registry, and 30-minute news cadence below. Production services are `services/upstox/` (SQL/source ingestion) and `services/stockgraph/` (FalkorDB/LLM), with hourly news and API registration.
+
 ## 1. End-to-End Architecture Diagram
 
 ```text
@@ -337,11 +339,43 @@ CREATE TABLE vendor_sync_state (
     last_fetched_at TIMESTAMPTZ NOT NULL DEFAULT now(),
     PRIMARY KEY (vendor_id, ticker, series)
 );
+
+-- Immutable raw news staging (Rule 7 pattern applied to news providers).
+-- Every provider payload lands here BEFORE any graph write, so LLM routing
+-- and embeddings can be replayed without re-spending metered API quota.
+-- fetched_at is part of the key: a re-fetched or corrected article is a
+-- NEW vintage, never an overwrite. The graph remains the serving store.
+CREATE TABLE news_raw (
+    provider_id VARCHAR(50) NOT NULL,
+    external_id VARCHAR(160) NOT NULL,
+    published_at TIMESTAMPTZ,
+    source_url TEXT,
+    payload JSONB NOT NULL,
+    fetched_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+    PRIMARY KEY (provider_id, external_id, fetched_at)
+);
+CREATE INDEX news_raw_lookup_idx
+    ON news_raw (provider_id, published_at DESC);
+
+-- Per-provider incremental fetch watermark. Only ever moves forward.
+CREATE TABLE news_fetch_state (
+    provider_id VARCHAR(50) PRIMARY KEY,
+    last_published_at TIMESTAMPTZ,
+    last_fetched_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
 ```
 
 ## 5. Vendor Adapter Contract & Scheduler Hardening
 
 - `ChartProviderAdapter.get_eod_series(ticker, start, end)` / `get_macro_series(keys, start, end)` are the only vendor touchpoints. Retries with backoff, rate-limit respect, server-side keys. Normalization appends new vintages, never overwrites provisional rows.
+- `NewsProviderAdapter.fetch(since, limit)` is the only news-provider touchpoint (`services/upstox/src/upstox_service/adapters/providers/news/adapters.py`). Subclasses implement only `_build_url()` and `_parse()`; the shared template owns the request loop, paging, symbol resolution, category classification, sentiment clamping and summary truncation. The adapter is an **anti-corruption layer**: provider symbols (`SBIN.NS`) become canonical NSE tickers (`SBIN`) there, and anything that does not resolve through `CanonicalEntityResolver` is dropped, never invented (Rule 4). `services/upstox/src/upstox_service/adapters/providers/http_client.py` holds the shared transport (throttle, UA rotation, retry/backoff), shared with the NSE Bhavcopy adapter.
+- **News provider roles** (verified live 2026-10-21): Marketaux is the *precision* source (ticker + per-entity `sentiment_score`, `countries=in`, `symbols=` needs the `.NS` suffix, free tier clamps `limit` to 3 articles/request); Currents is the *breadth* source (`country=in`, `category=`, `page_size` max 20, no ticker tags, no sentiment); Alpha Vantage `NEWS_SENTIMENT` and FMP `news/stock` are **paywalled on the free plan** and degrade to `DEGRADED_PAYWALL` (their response bodies say so) rather than raising — they go live unchanged when a paid plan is configured, and the verdict is remembered so the cron stops spending daily quota re-probing a dead endpoint. A news API is a **media** source: it shares the RSS priority tier, so it never overwrites an exchange filing and never overwrites another media source.
+- **Two Currents query kinds** (measured over a 24h window): a **targeted** boolean OR over the registry's COMPANY NAMES, and a **broad** untargeted India sweep. The targeted query is what makes the feed routable — a broad India feed almost never names a tracked stock. Measured: 10 of 20 returned articles routable with the targeted query against 1 of 20 for the broad feed. Company NAMES discriminate far better than tickers — adding the tickers to the same query collapsed routability from 10 back to 3, because short tickers (`LT`, `ITC`, `INFY`) match unrelated words.
+- **News fetch policy** (`services/upstox/src/upstox_service/application/ingestion/news_fetch.py`): per-provider daily request budget (Redis counter `newsquota:<provider>:<YYYYMMDD>`) capped by the provider's own plan limit; incremental window `watermark - news_lookback_minutes` bounded by `news_max_window_minutes`; raw payload staged into `news_raw` before any graph write; watermark advanced to the newest article seen and never moved backwards. **Measured lookback:** Marketaux's *ticker-tagged* articles lag its general feed by ~3.5h, so a 3h window returned ZERO matching articles while a 12h window returned 17 — `news_lookback_minutes` is 720.
+- **Deduplication bucket** is derived from the article TEXT, never from the provider's tagging (`NewsCandidateResolver.primary_entity`): the same story arriving from two providers must land on the same bucket, or L2/L3 cannot see them as duplicates and the graph gains two nodes for one story. Provider tags drive *routing* only.
+- **Sentiment provenance**: the provider's per-entity score is written to the impact edge (`r.sentiment`) OUTSIDE the LLM schema, so the model can never fabricate it. `r.causal_rationale` carries the LLM's reason and is read back under the dossier's `rationale` field.
+- **LLM output resilience**: the LLM-facing schemas (`InferredNewsStockImpact`, `InferredNewsCorrelation`) default every field and coerce explicit `null`s, so one malformed verdict costs THAT verdict only. The processors enforce the real rules (known impact type, canonical ticker, confidence floor and range, non-empty rationale, known prior id) instead of the schema failing the whole batch.
+- **Credential hygiene**: provider keys travel as query parameters, so `redact_url()` masks `api_key`/`apikey`/`api_token`/`token`/`access_token`/`key` before any URL reaches a log line.
 - Backfill watermark: read `vendor_sync_state` for `(vendor_id, ticker, series)`, fetch from the vendor, insert staged rows with `trade_date > last_trade_date` only, then `UPDATE vendor_sync_state SET last_trade_date, last_fetched_at`. The watermark only moves forward, so later revisions of already-synced dates are caught by the `check_revisions` revision sweep: re-fetch the trailing `vendor_revision_lookback_days` window (settings), compare payload hashes, and stage any changed payload as a NEW `vendor_quotes_raw` vintage. Revisions/gaps are logged to `ingest_runs` for replay.
 - Vintage resolution rule (SQL ↔ graph consistent): downstream normalization reads one row per `(vendor_id, ticker, trade_date, series)` with **latest vintage wins** — `LATEST_VINTAGE_QUERY` (`SELECT DISTINCT ON (...) ... ORDER BY fetched_at DESC`). `quarterly_financials` restatements (PK `ticker, quarter_label, valid_from_ts`) and monthly MF corrections (PK `month, ticker, amc_id, valid_from_ts`) mirror the graph's `valid_from_ts` / `[:SUPERSEDES]` rotation; a vintage is never overwritten.
 - APScheduler: separate `stockgraph-scheduler` process, durable `SQLAlchemyJobStore` (Postgres) or `RedisJobStore`, `coalesce=True`, `max_instances=1`, `misfire_grace_time=300`, Redis `SET NX EX` lock per job, all runs logged to `ingest_runs`.

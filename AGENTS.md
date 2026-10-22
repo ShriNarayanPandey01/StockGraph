@@ -1,5 +1,7 @@
 # AGENTS.md — Master AI Coding Instructions & Project Blueprint
 
+> **Current deployment architecture:** Read [docs/04_SERVICE_BOUNDARIES.md](docs/04_SERVICE_BOUNDARIES.md) first. It supersedes the legacy single-service layout, combined dossier, selective macro baseline, YAML runtime registry, and 30-minute news cadence below. Production services are `services/upstox/` (SQL/source ingestion) and `services/stockgraph/` (FalkorDB/LLM), with hourly news and API registration.
+
 > **CRITICAL FOR AI CODING AGENTS (Cursor / Claude Code / Windsurf):**
 > Before writing, refactoring, or planning any code, read this file completely and consult the linked specification files in `/docs/`. Never violate the Architectural Invariants in Section 3.
 
@@ -17,7 +19,7 @@ When implementing specific modules, load the corresponding detailed specificatio
 We are building a **Temporal GraphRAG + Time-Series Stock Intelligence Platform** for Indian Equities (NSE/BSE) powered by a **Context-Aware Dynamic Ontology**.
 
 - **Phase 1 (CURRENT FOCUS — Build Now):**
-  - Build a scheduled **Multi-Cadence Ingestion Engine** (no realtime/websockets). A **30-minute cron runs news-only** (RSS feeds + NSE/BSE Reg-30 corporate announcements). Price/metric cadences record **two daily checkpoints per ticker**: Market Open (~9:30 AM IST) and Market Close (~7:00 PM IST with official NSE Bhavcopy delivery data). Monthly/Bi-Monthly macro & MF holdings use abstract base interfaces (`BasePeriodicMacroIngestor`) with pending implementation stubs; Quarterly/Annually earnings and filings run on corporate calendar.
+  - Build a scheduled **Multi-Cadence Ingestion Engine** (no realtime/websockets). A **30-minute cron runs news-only** (paid news APIs via NewsProviderAdapter + NSE/BSE Reg-30 corporate announcements). Price/metric cadences record **two daily checkpoints per ticker**: Market Open (~9:30 AM IST) and Market Close (~7:00 PM IST with official NSE Bhavcopy delivery data). Monthly/Bi-Monthly macro & MF holdings use abstract base interfaces (`BasePeriodicMacroIngestor`) with pending implementation stubs; Quarterly/Annually earnings and filings run on corporate calendar.
   - **Curated Static Baseline + Dynamic LLM-Driven Ontology:** `ontology_seed.yaml` defines the **canonical node registry** (Stocks, Commodities, MacroFactors, Sectors — no `:Currency` nodes; USD/INR forex is a `:MacroFactor`), **rich Stock Profile descriptions** (business model, revenue segments, raw material inputs, geography), **MacroFactor explainers** (`description`, `why_it_moves`, `equity_transmission`), **Commodity inter-links** (`related_ids`, e.g. `COKING_COAL <-> HRC_STEEL`), and — by explicit operator design — a **small curated set of static edges** for macro sensitivities and stock exposures (see Rule 4 for the exact permitted categories). Everything else is LLM-inferred: the LLM receives `StockContextCard`s (stock profile + latest quarterly snapshot + concall guidance + existing exposures) to dynamically decide:
     1. Which `:Stock` relates to which `:Commodity`, `:MacroFactor`, `:Sector`, or peer `:Stock` — and which `:Commodity` relates to which `:Commodity` (`RELATED_TO`) — (`DynamicOntologyBuilder`).
     2. Which `:NewsEvent` relates to which `:Stock` (directly or indirectly) and which `:Commodity`/`:MacroFactor` it shocks (`NewsGraphExtractor`).
@@ -58,8 +60,8 @@ The dossier API accepts exactly one window — no arbitrary `from_date/to_date`,
 - **Retention:** graph keeps 1Y + 30d grace; SQL keeps full history with compression. Both window queries are always bounded and cacheable (2 keys per ticker).
 
 ### Rule 4: Canonical Node Registry + Context-Aware Dynamic Edge Synthesis
-- **Strict Node Identity, Curated + Dynamic Edges:** Never allow an LLM or scraper to create free-text `:Stock`, `:Commodity`, `:MacroFactor`, or `:Sector` node IDs. There is NO `:Currency` node type — forex (USD/INR) is a `:MacroFactor` (`USD_INR_FX`). All target entity IDs produced by the LLM must pass through `CanonicalEntityResolver` to resolve to an official NSE `ticker` / `ISIN` or a registry ID from `src/config/ontology_seed.yaml` (seed IDs: `BRENT_CRUDE`, `HRC_STEEL`, `COKING_COAL`, `USD_INR_FX`, `RBI_REPO_RATE`, `INDIA_CPI`, `INDIA_GDP_GROWTH`, `INDIA_10Y_YIELD`, `US_FED_RATE`, `GOVT_CAPEX_SPEND`, etc.).
-- **Curated Static Baseline + Dynamic Extension:** `src/config/ontology_seed.yaml` defines the **canonical entity catalog, rich Stock Profile descriptions** (`business_summary`, `revenue_segments`, `raw_material_inputs`, `geographic_exposure`), **MacroFactor explainers** (`description`, `why_it_moves`, `equity_transmission`, `default_scope`), and **Commodity inter-links** (`related_ids` + `related_rationale`). It may declare **static edges in exactly three curated categories, and no others**: (1) `SENSITIVE_TO_MACRO` — per-stock `macro_exposures` plus the `BROAD` baseline (next bullet); (2) `EXPOSED_TO` — per-stock `exposures` operator-curated commodity lists; (3) `RELATED_TO` — commodity `related_ids` inter-links. Every other ontology edge (`SUPPLIES_TO`, `COMPETES_WITH`, peer `Stock <-> Stock` links) must be LLM-inferred via `DynamicOntologyBuilder` — never hand-added to YAML.
+- **Strict Node Identity, Curated + Dynamic Edges:** Never allow an LLM or scraper to create free-text `:Stock`, `:Commodity`, `:MacroFactor`, or `:Sector` node IDs. There is NO `:Currency` node type — forex (USD/INR) is a `:MacroFactor` (`USD_INR_FX`). All target entity IDs produced by the LLM must pass through `CanonicalEntityResolver` to resolve to an official NSE `ticker` / `ISIN` or a registry ID from `services/upstox/src/upstox_service/resources/ontology_seed.yaml` (seed IDs: `BRENT_CRUDE`, `HRC_STEEL`, `COKING_COAL`, `USD_INR_FX`, `RBI_REPO_RATE`, `INDIA_CPI`, `INDIA_GDP_GROWTH`, `INDIA_10Y_YIELD`, `US_FED_RATE`, `GOVT_CAPEX_SPEND`, etc.).
+- **Curated Static Baseline + Dynamic Extension:** `services/upstox/src/upstox_service/resources/ontology_seed.yaml` defines the **bootstrap canonical entity catalog, rich Stock Profile descriptions** (`business_summary`, `revenue_segments`, `raw_material_inputs`, `geographic_exposure`), **MacroFactor explainers** (`description`, `why_it_moves`, `equity_transmission`, `default_scope`), and **Commodity inter-links** (`related_ids` + `related_rationale`). It may declare **static edges in exactly three curated categories, and no others**: (1) `SENSITIVE_TO_MACRO` — per-stock `macro_exposures` plus the `BROAD` baseline (next bullet); (2) `EXPOSED_TO` — per-stock `exposures` operator-curated commodity lists; (3) `RELATED_TO` — commodity `related_ids` inter-links. Every other ontology edge (`SUPPLIES_TO`, `COMPETES_WITH`, peer `Stock <-> Stock` links) must be LLM-inferred via `DynamicOntologyBuilder` — never hand-added to YAML.
 - **Broad Macro Baseline + Selective Refinement:** `BROAD`-scoped macro factors (`RBI_REPO_RATE`, `INDIA_CPI`, `INDIA_GDP_GROWTH`, `INDIA_10Y_YIELD`, `US_FED_RATE`, `GOVT_CAPEX_SPEND`) are seeded as permanent `(:Stock)-[:SENSITIVE_TO_MACRO]->(:MacroFactor)` edges to every stock, since macro moves hit almost all equities. `SELECTIVE` macros (`USD_INR_FX`) link only where listed. The LLM may later refine sensitivity/confidence, but the baseline is never empty.
 - **Commodity Inter-Links:** `(:Commodity)-[:RELATED_TO]->(:Commodity)` edges (input/substitute linkage, e.g. `COKING_COAL -[:RELATED_TO]-> HRC_STEEL`) are seeded from `related_ids` and LLM-extensible via `InferredOntologyEdge{relation: RELATED_TO}`.
 - **Mandatory Stock Context Injection (`StockProfileProvider`):** Whenever the LLM infers `Stock <-> Commodity/Currency/Macro/Sector/Stock` edges (`DynamicOntologyBuilder`) or decides which `NewsEvent` relates to which `Stock` (`NewsGraphExtractor`), the LLM prompt MUST be injected with `StockContextCard`s containing the stock's business summary, raw materials, revenue segments, latest `QuarterlySnapshot`, latest `GuidanceChunk` highlights, and current active graph exposures.
@@ -72,7 +74,10 @@ Four layers run at different stages; thresholds come from settings (`dedup_cosin
 - **L3 — Semantic Deduplication during vector storage:** after embedding, run the 48h vector search; cosine >= `dedup_cosine_threshold` links `(dup)-[:DUPLICATE_OF]->(canonical)` instead of creating new impact edges. Keep the earliest item canonical.
 - **L4 — Cross-News Correlation (`NewsCorrelator`):** for every newly persisted canonical `(:NewsEvent)`, query non-duplicate canonical news in the trailing `correlation_window_days` where cosine is in `[correlation_min_cosine, dedup_cosine_threshold)` or that share an impacted `:Stock`/`:Commodity`/`:MacroFactor`. The LLM evaluates candidate pairs with context and links correlated stories via `(n_new)-[:CORRELATED_WITH {correlation_type, confidence, rationale, event_ts}]->(n_prior)` where `correlation_type` $\in$ `CAUSAL_CHAIN | MACRO_CONTAGION | SECTOR_RIPPLE | FOLLOW_UP`.
 - News node id is deterministic: `sha1(normalized_headline + primary_entity + event_date)`; always `MERGE (n:NewsEvent {id})`, never bare `CREATE`.
-- Source priority on conflict: Reg-30 filing > BSE > NSE > media RSS. Lower-priority sources never overwrite the canonical summary.
+- The dedup bucket `primary_entity` is derived from the article TEXT, never from a provider's entity tags: the same story arriving from two providers must land on the same bucket, or L2/L3 cannot see them as duplicates and the graph gains two `(:NewsEvent)` nodes for one story. Provider tags drive ROUTING only.
+- Source priority on conflict: Reg-30 filing > BSE > NSE > media (RSS and news-API providers share the media tier). Lower-priority sources never overwrite the canonical summary.
+- News reaches the graph only through `NewsProviderAdapter` (the anti-corruption layer: provider symbols such as `SBIN.NS` become canonical tickers, and anything that does not resolve through `CanonicalEntityResolver` is dropped, never invented). Raw provider payloads are staged immutably in `news_raw` BEFORE any graph write, so LLM routing and embeddings can be replayed without re-spending metered API quota. The provider's per-entity sentiment is written to the impact edge OUTSIDE the LLM schema, so the model can never fabricate it. Provider credentials travel as query parameters and are masked by `redact_url()` before any URL reaches a log line.
+- A news API is a **media** source (same tier as RSS): it never overwrites an exchange filing, and it never overwrites another media source.
 
 ### Rule 6: Hardened APScheduler (Persistence + Single-Flight)
 - APScheduler runs as a **separate worker process** (`stockgraph-scheduler` entrypoint), never inside the API process.
@@ -90,64 +95,33 @@ Four layers run at different stages; thresholds come from settings (`dedup_cosin
 
 ## 4. Target Repository Structure
 ```text
-    stock-graphrag-engine/
-    ├── AGENTS.md
-    ├── docs/
-    │   ├── 01_USE_CASE_AND_SOURCES.md
-    │   ├── 02_SYSTEM_DESIGN.md
-    │   └── 03_CLASS_DIAGRAM.md
-    ├── docker-compose.yml               # FalkorDB + TimescaleDB (PostgreSQL 16) + Redis
-    ├── pyproject.toml                   # Python 3.12+, FastAPI, falkordb, asyncpg, pydantic, apscheduler
-    ├── .env.example
-    ├── src/
-    │   ├── config/
-    │   │   ├── settings.py              # Pydantic BaseSettings (dedup, correlation, ontology confidence thresholds)
-    │   │   └── ontology_seed.yaml       # Canonical Entity Catalog + Rich Stock Profiles + Curated Static Edges (macro/stock categories only)
-    │   ├── domain/
-    │   │   ├── enums.py                 # Window, Cadence, MarketSession, OntologyRelationType, CorrelationType, DealType, NewsCategory
-    │   │   ├── entities.py              # Internal domain objects
-    │   │   └── schemas.py               # API & LLM Pydantic models (StockDossierResponse, StockContextCard, Inferred* models)
-    │   ├── repositories/
-    │   │   ├── falkor_repo.py           # FalkorDB connection, index init, dynamic ontology, news correlation & vector queries
-    │   │   └── timescale_repo.py        # PostgreSQL/TimescaleDB async queries & aggregations
-    │   ├── processors/
-    │   │   ├── entity_resolver.py       # Maps aliases ("Reliance", "RIL") -> canonical "RELIANCE" / ISIN / Registry ID
-    │   │   ├── stock_profile_provider.py # Builds StockContextCard & shortlists candidate stocks via vector + alias + graph
-    │   │   ├── dynamic_ontology_builder.py # LLM infers Stock<->Commodity/Currency/Macro/Sector/Stock edges using StockContextCard
-    │   │   ├── anomaly_detector.py      # SQL-only Z-Score calculation for Delivery % & Valuation
-    │   │   ├── news_dedup.py            # L1-L3 URL canonicalization, deterministic IDs, DUPLICATE_OF linking
-    │   │   ├── news_graph_extractor.py  # Context-aware LLM router: News + StockContextCards -> Stock & Macro impact edges
-    │   │   └── news_correlator.py       # L4 LLM correlator: links related canonical NewsEvents via [:CORRELATED_WITH]
-    │   ├── ingestion/
-    │   │   ├── base.py                  # Abstract BaseIngestor
-    │   │   ├── stream_news_ingestor.py  # 30m cron: RSS + Reg-30 -> Dedup -> Candidate Stock Shortlist -> LLM Route -> Correlate
-    │   │   ├── daily_eod_ingestor.py    # 7PM IST cron: Bhavcopy, FII/DII, Bulk/Insider, P/E, FX/Crude
-    │   │   ├── periodic_macro_ingestor.py # Monthly/Bi-M cron: MF holdings, CPI, RBI Repo, Sector sales
-    │   │   ├── quarterly_ingestor.py    # Quarterly cron: XBRL P&L/BS/CF, Concall PDF RAG, triggers DynamicOntologyBuilder refresh
-    │   │   ├── chart_vendor_adapter.py  # Generic ChartProviderAdapter + vendor sync/normalization
-    │   │   └── scheduler.py             # APScheduler / CLI entrypoint for cron jobs
-    │   ├── services/
-    │   │   └── stock_context_service.py # Core orchestrator merging FalkorDB + TimescaleDB by date range
-    │   └── api/
-    │       ├── main.py                  # FastAPI application factory
-    │       ├── routes_stock.py          # REST endpoints (/api/v1/stocks/{ticker}/dossier)
-    │       └── mcp_server.py            # FastMCP tool server for AI agent consumption
-    └── tests/
-        ├── test_temporal_bounds.py
-        ├── test_falkor_queries.py
-        └── test_news_routing.py
+stock-graphrag-engine/
+├── services/
+│   ├── upstox/
+│   │   ├── pyproject.toml
+│   │   └── src/upstox_service/          # Providers, TimescaleDB, jobs, outbox, scheduler
+│   └── stockgraph/
+│       ├── pyproject.toml
+│       └── src/stockgraph/              # FalkorDB, LLM processing, graph API/MCP
+├── contracts/events-v1.schema.json      # Versioned cross-service wire contract
+├── scripts/                             # Cross-service operations and verification
+├── tests/integration/                   # Cross-service integration tests
+├── docs/04_SERVICE_BOUNDARIES.md        # Authoritative deployment architecture
+├── docker-compose.yml
+├── pyproject.toml                       # Non-package uv workspace root
+└── .env.example
 ```
 
-> **Phase 1 Implementation Note:** Core `processors/`, `ingestion/`, `services/`, and `api/` modules implement the interfaces specified in `docs/03` and the architectural invariants in Section 3.
+> **Phase 1 Implementation Note:** The two service packages implement the interfaces specified in `docs/03` and the architectural invariants in Section 3. There is no deployable root package.
 
 ---
 
 ## 5. Step-by-Step Vibe Coding Implementation Order
 When asked to build the project, execute in these exact milestones:
-- **Milestone 1 (Infra & Schemas):** Create `docker-compose.yml`, `pyproject.toml`, `src/domain/enums.py`, `src/domain/schemas.py`, and database initialization scripts in `falkor_repo.py` and `timescale_repo.py`.
+- **Milestone 1 (Infra & Schemas):** Maintain `docker-compose.yml`, the uv workspace manifests, service-local domain models, and database initialization in the owning service repositories.
 - **Milestone 2 (Static Ontology & Entity Resolver):** `ontology_seed.yaml` (done), `processors/entity_resolver.py` (`CanonicalEntityResolver`, Rule 4 gatekeeper), `repositories/ontology_seeder.py` (idempotent MERGE seeder: BELONGS_TO + EXPOSED_TO + SENSITIVE_TO_MACRO with BROAD baseline + RELATED_TO commodity inter-links), and `processors/stock_profile_provider.py` (`StockContextCard` builder for LLM prompts).
 - **Milestone 3 (The Stock Context Service & API/MCP):** Build `stock_context_service.py`, `routes_stock.py`, and `mcp_server.py` with full support for `window=LAST_6M | LAST_1Y`, verified with mock seed data.
-- **Milestone 4 (News & Vendor Chart Ingestion):** Implement `news_dedup.py`, `news_graph_extractor.py`, `stream_news_ingestor.py` (30m news-only), `chart_vendor_adapter.py` + vendor sync/normalization, and SQL-only `anomaly_detector.py`.
+- **Milestone 4 (News & Vendor Chart Ingestion):** Implement `news_dedup.py`, `news_graph_extractor.py`, `news_candidate_resolver.py`, `news_provider_adapter.py`, `news_fetch_service.py`, `stream_news_ingestor.py` (30m news-only), `chart_vendor_adapter.py` + vendor sync/normalization, and SQL-only `anomaly_detector.py`.
 - **Milestone 5 (Bi-Monthly & Quarterly Ingestion):** Implement `periodic_macro_ingestor.py` and `quarterly_ingestor.py` with bi-temporal node rotation (`[:SUPERSEDES]`).
 
 ---

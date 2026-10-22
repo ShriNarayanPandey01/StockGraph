@@ -1,0 +1,49 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:stockgraph:committed-event:v1",
+  "title": "Committed data-service event",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version", "event_id", "kind", "entity_id", "revision", "occurred_at", "payload"],
+  "properties": {
+    "schema_version": {"const": 1},
+    "event_id": {"type": "string", "format": "uuid"},
+    "kind": {"enum": ["registry.updated", "news.received"]},
+    "entity_id": {"type": "string", "minLength": 1},
+    "revision": {"type": "integer", "minimum": 1},
+    "occurred_at": {"type": "string", "format": "date-time"},
+    "job_id": {"type": ["string", "null"], "format": "uuid"},
+    "payload": {"type": "object"}
+  },
+  "allOf": [
+    {
+      "if": {"properties": {"kind": {"const": "registry.updated"}}},
+      "then": {"properties": {"payload": {
+        "type": "object", "required": ["kind", "entity"],
+        "properties": {
+          "kind": {"enum": ["Stock", "Commodity", "MacroFactor", "Sector"]},
+          "entity": {"type": "object"}
+        }
+      }}}
+    },
+    {
+      "if": {"properties": {"kind": {"const": "news.received"}}},
+      "then": {"properties": {"payload": {
+        "type": "object", "required": ["external_id", "headline", "summary", "source_url", "source", "published_at", "category"],
+        "properties": {
+          "published_at": {"type": "string", "format": "date-time"},
+          "category": {"enum": ["EARNINGS", "SECTOR_UPDATE", "MACRO", "TRADE", "GEOPOLITICAL", "REG30", "COMMODITY", "CORPORATE_ACTION", "OTHER"]},
+          "eligibility": {
+            "type": "object",
+            "properties": {
+              "version": {"type": "integer", "minimum": 1},
+              "decision": {"enum": ["APPROVED"]},
+              "source": {"enum": ["RULES", "LLM"]},
+              "reason": {"type": "string"}
+            }
+          }
+        }
+      }}}
+    }
+  ]
+}

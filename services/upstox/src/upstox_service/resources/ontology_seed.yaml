@@ -1,0 +1,195 @@
+# Canonical market ontology registry + rich Stock Profiles (Rule 4 source of truth).
+#
+# Node types: :Stock, :Commodity, :MacroFactor, :Sector.
+# Currencies are NOT separate nodes — USD/INR forex lives as a :MacroFactor
+# (USD_INR_FX) whose numeric series stays in TimescaleDB (Rule 2).
+#
+# Bootstrap only: loaded by the Data Service when its SQL registry is empty.
+# Runtime registration and updates use APIs, not edits to this file.
+# Every registered stock is linked to every registered macro factor.
+# Commodity exposures/inter-links are a curated baseline; other edges use the LLM.
+
+commodities:
+  - id: BRENT_CRUDE
+    name: Brent Crude Oil
+    unit: USD/bbl
+    aliases: [brent, crude, crude oil]
+    related_ids: []
+  - id: HRC_STEEL
+    name: HRC Steel (India)
+    unit: INR/tonne
+    aliases: [hrc, steel, hot rolled coil]
+    related_ids: [COKING_COAL, IRON_ORE]
+    related_rationale: Coking coal and iron ore are the key blast-furnace inputs; their prices drive steel margins.
+  - id: COKING_COAL
+    name: Coking Coal
+    unit: USD/tonne
+    aliases: [coking coal, met coal]
+    related_ids: [HRC_STEEL]
+    related_rationale: Key input cost for blast-furnace steel production.
+  - id: IRON_ORE
+    name: Iron Ore
+    unit: USD/tonne
+    aliases: [iron ore, hematite, magnetite]
+    related_ids: [HRC_STEEL]
+    related_rationale: Primary smelting input for blast-furnace steel; priced benchmark (IODEX) drives long-product margins.
+  - id: THERMAL_COAL
+    name: Thermal Coal
+    unit: USD/tonne
+    aliases: [thermal coal, power coal, coal]
+    related_ids: []
+    related_rationale: ""
+
+macro_factors:
+  - id: RBI_REPO_RATE
+    name: RBI Repo Rate
+    unit: percent
+    aliases: [repo rate, rbi, monetary policy]
+    description: Policy rate at which RBI lends to banks; anchors borrowing costs across the economy.
+    why_it_moves: RBI MPC hikes when inflation runs above target or cuts to support growth; global rates and INR pressure also feed in.
+    equity_transmission: Higher repo raises cost of capital, compresses valuation multiples, and hits rate-sensitive sectors (banking NIMs, auto, realty).
+    default_scope: BROAD
+  - id: INDIA_CPI
+    name: India CPI Inflation
+    unit: percent
+    aliases: [cpi, inflation]
+    description: Consumer price inflation; determines real purchasing power and RBI policy room.
+    why_it_moves: Food and fuel supply shocks, MSP changes, crude pass-through, monsoon outcomes.
+    equity_transmission: High CPI squeezes consumption volumes and forces tighter policy; staples/autos reprice first.
+    default_scope: BROAD
+  - id: INDIA_GDP_GROWTH
+    name: India GDP Growth
+    unit: percent YoY
+    aliases: [gdp, gdp growth, economic growth]
+    description: Real GDP growth rate; top-down driver of aggregate earnings growth.
+    why_it_moves: Government capex, consumption demand, exports, monsoon, global growth linkage.
+    equity_transmission: Faster growth lifts volumes across cyclicals (banking credit, autos, cement, metals); slowdowns compress multiples.
+    default_scope: BROAD
+  - id: USD_INR_FX
+    name: USD/INR Exchange Rate
+    unit: INR per USD
+    aliases: [usd/inr, dollar, rupee, forex, currency, exchange rate]
+    description: Rupee value versus the US dollar; moved here from the retired :Currency node type.
+    why_it_moves: US Fed policy and dollar strength, FII flows, trade deficit, RBI intervention, crude import bill.
+    equity_transmission: Weak INR boosts IT/pharma export margins but raises import bills for refiners, airlines, and consumer durables.
+    default_scope: BROAD
+  - id: INDIA_10Y_YIELD
+    name: India 10Y Government Bond Yield
+    unit: percent
+    aliases: [bond yield, 10y, gsec, government bond]
+    description: Benchmark long-term borrowing cost; discount rate for equity valuations.
+    why_it_moves: RBI policy expectations, fiscal deficit and government borrowing, inflation outlook, global yields.
+    equity_transmission: Higher yields derate long-duration growth stocks; banks benefit via NIMs while NBFC funding costs rise.
+    default_scope: BROAD
+  - id: US_FED_RATE
+    name: US Federal Funds Rate
+    unit: percent
+    aliases: [fed rate, us rates, federal reserve, global interest rates]
+    description: US policy rate; sets global risk appetite and dollar liquidity for EM flows.
+    why_it_moves: US inflation, labour market, FOMC dot-plot guidance.
+    equity_transmission: Higher US rates pull FII money out of India, weaken INR, and tighten domestic financial conditions.
+    default_scope: BROAD
+  - id: GOVT_CAPEX_SPEND
+    name: Government Capex Spending
+    unit: INR lakh crore
+    aliases: [capex, government spending, budget capex, infra spending]
+    description: Union budget capital expenditure on roads, rail, defence, and power.
+    why_it_moves: Budget allocations, fiscal deficit room, election cycles, execution by ministries.
+    equity_transmission: Direct order inflow for infra, capital goods, cement, and PSU banks financing projects.
+    default_scope: BROAD
+
+sectors:
+  - id: METALS
+    name: Metals & Mining
+    aliases: [metals, steel, mining]
+  - id: ENERGY
+    name: Energy & Oil
+    aliases: [energy, oil, gas, refining]
+  - id: IT
+    name: Information Technology
+    aliases: [it, software, services]
+  - id: BANKING
+    name: Banking & Financials
+    aliases: [banking, banks, financials]
+  - id: AUTO
+    name: Automobiles & Components
+    aliases: [auto, automotive, vehicles, auto components]
+  - id: FMCG
+    name: Consumer & Retail
+    aliases: [fmcg, consumer, staples, retail]
+  - id: PHARMA
+    name: Pharmaceuticals
+    aliases: [pharma, pharmaceuticals, drugs]
+  - id: CEMENT
+    name: Cement & Construction
+    aliases: [cement, construction materials]
+  - id: POWER
+    name: Power & Utilities
+    aliases: [power, utilities, electricity]
+  - id: INDUSTRIALS
+    name: Industrials & Infrastructure
+    aliases: [industrials, infrastructure, capital goods]
+  - id: TELECOM
+    name: Telecommunications
+    aliases: [telecom, telecommunications, mobile]
+  - id: DIVERSIFIED
+    name: Diversified
+    aliases: [diversified, conglomerate]
+
+# Bootstrap stock universe: five NSE large caps. Add further stocks through the API.
+# ISINs are taken from NSE's official EQUITY_L.csv.
+# `exposures` reference commodity ids above. Every stock receives permanent
+# SENSITIVE_TO_MACRO baseline links to every registered macro factor.
+# Rich profiles feed StockContextCard (business model, revenue segments,
+# raw material inputs, geography) for DynamicOntologyBuilder + NewsGraphExtractor.
+stocks:
+  - ticker: TATASTEEL
+    isin: INE081A01020
+    name: Tata Steel Ltd
+    sector: METALS
+    exposures: [HRC_STEEL, COKING_COAL, IRON_ORE]
+    aliases: [tata steel]
+    business_summary: Integrated steel producer with captive iron-ore mines; flat and long products for auto, construction, and engineering.
+    revenue_segments: [flat products, long products, tubes, mining]
+    raw_material_inputs: [coking coal, iron ore]
+    geographic_exposure: India + Europe (Tata Steel Europe)
+  - ticker: RELIANCE
+    isin: INE002A01018
+    name: Reliance Industries Ltd
+    sector: ENERGY
+    exposures: [BRENT_CRUDE]
+    aliases: [reliance industries, ril]
+    business_summary: Conglomerate spanning refining and petrochemicals (oil-to-chemicals), telecom (Jio), and retail.
+    revenue_segments: [oil-to-chemicals, telecom, retail, exploration]
+    raw_material_inputs: [brent crude]
+    geographic_exposure: India-led with global energy trading
+  - ticker: INFY
+    isin: INE009A01021
+    name: Infosys Ltd
+    sector: IT
+    exposures: []
+    aliases: [infosys]
+    business_summary: IT services exporter billing largely in USD; delivery from Indian offshore centres.
+    revenue_segments: [application services, infrastructure, engineering, consulting]
+    raw_material_inputs: [usd-inr forex]
+    geographic_exposure: US + Europe revenue, India delivery base
+  - ticker: TCS
+    isin: INE467B01029
+    name: Tata Consultancy Services Ltd
+    sector: IT
+    exposures: []
+    aliases: [tata consultancy services, tata consultancy]
+    business_summary: Large global IT services and consulting provider with deep banking, financial-services and consumer accounts.
+    revenue_segments: [application services, infrastructure services, consulting, BFSI products]
+    raw_material_inputs: [usd-inr forex]
+    geographic_exposure: Global clients, delivery from India
+  - ticker: HDFCBANK
+    isin: INE040A01034
+    name: HDFC Bank Ltd
+    sector: BANKING
+    exposures: []
+    aliases: [hdfc bank]
+    business_summary: Private-sector bank with a large retail, SME and digital-payments franchise following the HDFC Ltd merger.
+    revenue_segments: [retail banking, wholesale banking, treasury, subsidiaries]
+    raw_material_inputs: []
+    geographic_exposure: India with branches in Hong Kong, Dubai and Bahrain

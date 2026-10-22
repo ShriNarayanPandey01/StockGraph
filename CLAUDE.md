@@ -3,6 +3,10 @@
 > **CRITICAL FOR AI CODING AGENTS (Cursor / Claude Code / Windsurf):**
 > Before writing, refactoring, or planning any code, read this file completely and consult the linked specification files in `/docs/`. Never violate the Architectural Invariants in Section 3.
 
+> **Current deployment structure:** `docs/04_SERVICE_BOUNDARIES.md` supersedes the
+> former root-package layout. Deployable code lives only in `services/upstox/`
+> and `services/stockgraph/`; the repository root is a non-package workspace.
+
 ---
 
 ## 1. Documentation Index (Read Before Coding)
@@ -55,7 +59,7 @@ The dossier API accepts exactly one window — no arbitrary `from_date/to_date`,
 
 ### Rule 4: Canonical Entity Resolution (Zero Duplicate Nodes)
 - Never allow an LLM or scraper to create free-text `:Stock`, `:Commodity`, or `:MacroFactor` nodes.
-- All entity strings must pass through `CanonicalEntityResolver` first to resolve to an official NSE `ticker` / `ISIN` or a registry ID from `src/config/ontology_seed.yaml` (seed IDs: `BRENT_CRUDE`, `HRC_STEEL`, `COKING_COAL`, `USD_INR`, `RBI_REPO_RATE`, `INDIA_CPI`).
+- All entity strings must pass through `CanonicalEntityResolver` first to resolve to an official NSE `ticker` / `ISIN` or a registry ID from `services/upstox/src/upstox_service/resources/ontology_seed.yaml`.
 - The YAML registry is the source of truth. Adding a commodity/currency/macro/sector = 1 YAML entry + reseed. Never hardcode new IDs in code.
 
 ### Rule 5: Multi-Layered News Deduplication (Zero Duplicate Impact Paths)
@@ -83,48 +87,15 @@ Three layers run at different stages; thresholds come from settings (`dedup_cosi
 ## 4. Target Repository Structure
 ```text
 stock-graphrag-engine/
-├── AGENTS.md
-├── docs/
-│   ├── 01_USE_CASE_AND_SOURCES.md
-│   ├── 02_SYSTEM_DESIGN.md
-│   └── 03_CLASS_DIAGRAM.md
-├── docker-compose.yml               # FalkorDB + TimescaleDB (PostgreSQL 16) + Redis
-├── pyproject.toml                   # Python 3.12+, FastAPI, falkordb, asyncpg, pydantic, apscheduler
-├── .env.example
-├── src/
-│   ├── config/
-│   │   ├── settings.py              # Pydantic BaseSettings
-│   │   └── ontology_seed.yaml       # Static Stock -> Sector/Commodity/Currency/Macro mappings
-│   ├── domain/
-│   │   ├── enums.py                 # Window, Cadence, CommodityID, MacroID, DealType, NewsCategory
-│   │   ├── entities.py              # Internal domain objects
-│   │   └── schemas.py               # API Request/Response Pydantic models (StockDossierResponse, Window)
-│   ├── repositories/
-│   │   ├── falkor_repo.py           # FalkorDB connection, index init, OpenCypher & Vector queries
-│   │   └── timescale_repo.py        # PostgreSQL/TimescaleDB async queries & aggregations
-│   ├── processors/
-│   │   ├── entity_resolver.py       # Maps aliases ("Reliance", "RIL") -> "RELIANCE" / ISIN
-│   │   ├── anomaly_detector.py      # Z-Score calculation for Delivery % & Valuation
-│   │   ├── news_dedup.py            # URL canonicalization, deterministic IDs, DUPLICATE_OF linking
-│   │   └── news_graph_extractor.py  # LLM Structured Output: News -> 1-Hop Stock or 2-Hop Macro
-│   ├── ingestion/
-│   │   ├── base.py                  # Abstract BaseIngestor
-│   │   ├── stream_news_ingestor.py  # 30m cron: RSS feeds + NSE/BSE Reg-30 corporate announcements
-│   │   ├── daily_eod_ingestor.py    # 7PM IST cron: Bhavcopy, FII/DII, Bulk/Insider, P/E, FX/Crude
-│   │   ├── periodic_macro_ingestor.py # Monthly/Bi-M cron: MF holdings, CPI, RBI Repo, Sector sales
-│   │   ├── quarterly_ingestor.py    # Quarterly cron: XBRL P&L/BS/CF, Concall PDF RAG, Shareholding
-│   │   ├── chart_vendor_adapter.py  # Generic ChartProviderAdapter + vendor sync/normalization
-│   │   └── scheduler.py             # APScheduler / CLI entrypoint for cron jobs
-│   ├── services/
-│   │   └── stock_context_service.py # Core orchestrator merging FalkorDB + TimescaleDB by date range
-│   └── api/
-│       ├── main.py                  # FastAPI application factory
-│       ├── routes_stock.py          # REST endpoints (/api/v1/stocks/{ticker}/dossier)
-│       └── mcp_server.py            # FastMCP tool server for AI agent consumption
-└── tests/
-    ├── test_temporal_bounds.py
-    ├── test_falkor_queries.py
-    └── test_news_routing.py
+├── services/upstox/src/upstox_service/      # Providers, TimescaleDB, jobs, outbox
+├── services/stockgraph/src/stockgraph/      # FalkorDB, LLM, graph API/MCP
+├── contracts/events-v1.schema.json          # Cross-service wire contract
+├── scripts/                                 # Project operations and verification
+├── tests/integration/                       # Cross-service integration tests
+├── docs/04_SERVICE_BOUNDARIES.md            # Authoritative architecture
+├── docker-compose.yml
+├── pyproject.toml                           # Non-package uv workspace root
+└── .env.example
 ```
 
 > **Fix-only scope note:** `processors/`, `ingestion/`, `services/`, and `api/` modules are **deferred — interfaces specified in `docs/03`, not yet implemented**. This pass only fixes markdown + existing files (`docker-compose.yml`, `pyproject.toml`, `config/`, `domain/`, `repositories/`, `tests/`).
@@ -133,7 +104,7 @@ stock-graphrag-engine/
 
 ## 5. Step-by-Step Vibe Coding Implementation Order
 When asked to build the project, execute in these exact milestones:
-- **Milestone 1 (Infra & Schemas):** Create `docker-compose.yml`, `pyproject.toml`, `src/domain/enums.py`, `src/domain/schemas.py`, and database initialization scripts in `falkor_repo.py` and `timescale_repo.py`.
+- **Milestone 1 (Infra & Schemas):** Maintain `docker-compose.yml`, the uv workspace manifests, service-local domain models, and database initialization in the owning service repositories.
 - **Milestone 2 (Static Ontology & Entity Resolver):** Build `ontology_seed.yaml`, `entity_resolver.py`, and seed the baseline Stocks, Sectors, Commodities, Currencies, and Macro factors into FalkorDB.
 - **Milestone 3 (The Stock Context Service & API/MCP):** Build `stock_context_service.py`, `routes_stock.py`, and `mcp_server.py` with full support for `window=LAST_6M | LAST_1Y`, verified with mock seed data.
 - **Milestone 4 (News & Vendor Chart Ingestion):** Implement `news_dedup.py`, `news_graph_extractor.py`, `stream_news_ingestor.py` (30m news-only), `chart_vendor_adapter.py` + vendor sync/normalization, and SQL-only `anomaly_detector.py`.

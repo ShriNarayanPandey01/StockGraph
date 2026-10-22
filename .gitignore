@@ -221,3 +221,6 @@ __marimo__/
 
 # Graphify
 graphify-out/
+
+# Local project database backups (may contain licensed provider payloads).
+backups/
