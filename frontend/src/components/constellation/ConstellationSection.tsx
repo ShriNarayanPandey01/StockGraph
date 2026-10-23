@@ -39,9 +39,9 @@ export const ConstellationSection: React.FC<ConstellationSectionProps> = ({
       {/* Central Tagline Only — No paragraphs, no buttons, no eyebrow text */}
       <div className="absolute top-[44%] left-1/2 -translate-x-1/2 -translate-y-1/2 text-center pointer-events-none z-20 px-6 w-full max-w-4xl">
         <h1 className="text-4xl sm:text-6xl lg:text-7xl font-bold tracking-tight text-white leading-[1.08] drop-shadow-[0_10px_35px_rgba(0,0,0,0.9)]">
-          The Stock Intelligence Engine That Connects The{' '}
-          <span className="bg-gradient-to-b from-white via-slate-200 to-slate-400 bg-clip-text text-transparent">
-            Invisible Dots.
+          Stock Intelligence Engine  {' '}
+          <span className="bg-gradient-to-b from-white via-slate-200 to-slate-400 bg-clip-text text-transparent md:text-5xl">
+            That Connects Invisible Dots.
           </span>
         </h1>
       </div>

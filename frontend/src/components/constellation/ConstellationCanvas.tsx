@@ -751,52 +751,45 @@ export const ConstellationCanvas: React.FC<ConstellationCanvasProps> = ({
       const boxH = textHalfH + safeBuffer;
 
       for (const node of nodes) {
-        // A. Subtle autonomous celestial breathing drift (smooth, graceful moving action like interactive_wireframe)
+        // A. Minimal celestial breathing drift (subtle, tiny 1-2px organic float)
         const nodeHash = (node.id.charCodeAt(0) * 19 + (node.id.charCodeAt(1) || 7)) % 100;
-        const driftT = now * 0.0007 + nodeHash;
-        node.vx += Math.sin(driftT) * 0.025;
-        node.vy += Math.cos(driftT * 0.85) * 0.025;
+        const driftT = now * 0.0006 + nodeHash;
+        node.vx += Math.sin(driftT) * 0.003;
+        node.vy += Math.cos(driftT * 0.85) * 0.003;
 
-        // B. ONLY nearby nodes within 160px move when cursor is actively moving!
-        // (Prevent resting cursor jitter by requiring active mouse speed)
+        // B. Minimal cursor response: ONLY nearby nodes within 125px move a tiny bit when cursor actively moves
         if (mouseIsInside && mouseSpeed > 0.02) {
           const cdx = node.x - mx;
           const cdy = node.y - my;
           const cdist = Math.hypot(cdx, cdy);
-          const influenceRadius = 160;
+          const influenceRadius = 125;
 
           if (cdist < influenceRadius && cdist > 0) {
             const proximity = 1 - cdist / influenceRadius; // 1.0 at cursor, 0.0 at edge
             const weight = node.randomWeight; // Each nearby node has a unique sensitivity
             const angle = Math.atan2(cdy, cdx) + node.randomAngleOffset;
 
-            // Impart small, organic randomized displacement
-            const impulse = Math.min(mouseSpeed, 2.5) * 0.028 * proximity * weight;
-            node.vx += Math.cos(angle) * impulse + mVel.vx * 0.015 * proximity * weight;
-            node.vy += Math.sin(angle) * impulse + mVel.vy * 0.015 * proximity * weight;
+            // Very small, subtle displacement (max 3-5px deflection)
+            const impulse = Math.min(mouseSpeed, 1.8) * 0.006 * proximity * weight;
+            node.vx += Math.cos(angle) * impulse + mVel.vx * 0.003 * proximity * weight;
+            node.vy += Math.sin(angle) * impulse + mVel.vy * 0.003 * proximity * weight;
           }
         }
 
-        // C. Connected Nodes Stay Together: LOCAL Spring attraction between connected peers
+        // C. Maintain cluster cohesion & firm anchor to home position
         if (node.type !== 'Star') {
           const myCluster = CLUSTER_MAP[node.id];
           for (const neighborId of node.neighbors) {
             const neighbor = nodeMap.get(neighborId);
             if (neighbor) {
               const neighborCluster = CLUSTER_MAP[neighborId];
-              const ndx = neighbor.x - node.x;
-              const ndy = neighbor.y - node.y;
-              const ndist = Math.hypot(ndx, ndy);
-
-              // Only apply spring forces between nodes in the same cluster or nearby (< 180px)
-              // This strictly prevents cross-screen nodes from dragging each other across the hero text!
-              if (myCluster === neighborCluster || ndist < 180) {
-                if (ndist > 90 && ndist < 220) {
-                  const pull = (ndist - 90) * 0.00015;
-                  node.vx += (ndx / ndist) * pull;
-                  node.vy += (ndy / ndist) * pull;
-                } else if (ndist < 38 && ndist > 0) {
-                  const repel = (38 - ndist) * 0.0003;
+              // Only apply gentle separation if two connected nodes in same cluster overlap tightly (< 32px)
+              if (myCluster === neighborCluster) {
+                const ndx = neighbor.x - node.x;
+                const ndy = neighbor.y - node.y;
+                const ndist = Math.hypot(ndx, ndy);
+                if (ndist < 32 && ndist > 0) {
+                  const repel = (32 - ndist) * 0.0001;
                   node.vx -= (ndx / ndist) * repel;
                   node.vy -= (ndy / ndist) * repel;
                 }
@@ -804,53 +797,45 @@ export const ConstellationCanvas: React.FC<ConstellationCanvasProps> = ({
             }
           }
 
-          // D. Smooth, critically damped anchor to home position so constellations stay grouped
+          // Firm, smooth anchor to home position so nodes remain in their curated spots
           const hdx = node.homeX - node.x;
           const hdy = node.homeY - node.y;
-          node.vx += hdx * 0.0004;
-          node.vy += hdy * 0.0004;
+          node.vx += hdx * 0.003;
+          node.vy += hdy * 0.003;
+        } else {
+          // Ambient stars also gently anchored to their cosmic coordinates
+          const hdx = node.homeX - node.x;
+          const hdy = node.homeY - node.y;
+          node.vx += hdx * 0.002;
+          node.vy += hdy * 0.002;
         }
 
-        // E. Strict Hero Text Exclusion Zone: GUARANTEE NO NODE EVER OVERLAPS THE HEADLINE
+        // D. Strict Hero Text Exclusion Zone: GUARANTEE NO NODE EVER OVERLAPS THE HEADLINE
         const tdx = node.x - textCx;
         const tdy = node.y - textCy;
         const overlapX = boxW - Math.abs(tdx);
         const overlapY = boxH - Math.abs(tdy);
 
         if (overlapX > 0 && overlapY > 0) {
-          // Inside the text box: cleanly clamp to nearest boundary & zero out inward velocity (NO artificial kick!)
+          // Inside the text box: cleanly clamp to nearest boundary & zero out inward velocity
           if (overlapX < overlapY) {
             const signX = tdx >= 0 ? 1 : -1;
             node.x = textCx + signX * boxW;
             if (node.vx * signX < 0) {
-              node.vx = 0; // stop inward velocity completely
+              node.vx = 0;
             }
           } else {
             const signY = tdy >= 0 ? 1 : -1;
             node.y = textCy + signY * boxH;
             if (node.vy * signY < 0) {
-              node.vy = 0; // stop inward velocity completely
-            }
-          }
-        } else {
-          // Approaching within 35px: smooth quadratic deceleration buffer field
-          const distX = Math.max(0, Math.abs(tdx) - boxW);
-          const distY = Math.max(0, Math.abs(tdy) - boxH);
-          if (distX < 35 && distY < 35) {
-            const factorX = 1 - distX / 35;
-            const factorY = 1 - distY / 35;
-            if (distX < 35 && Math.abs(tdy) < boxH) {
-              node.vx += Math.sign(tdx || 1) * factorX * factorX * 0.02;
-            }
-            if (distY < 35 && Math.abs(tdx) < boxW) {
-              node.vy += Math.sign(tdy || 1) * factorY * factorY * 0.02;
+              node.vy = 0;
             }
           }
         }
 
-        // Velocity damping (critically damped so oscillations die out immediately)
-        node.vx *= 0.92;
-        node.vy *= 0.92;
+        // Velocity damping (critically damped so any movement settles quickly and smoothly)
+        node.vx *= 0.88;
+        node.vy *= 0.88;
         node.x += node.vx;
         node.y += node.vy;
 
