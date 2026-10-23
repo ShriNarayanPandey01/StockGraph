@@ -1,0 +1,1275 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>StockGraph — Landing Page Wireframe</title>
+  <script src="https://www.gstatic.com/antigravity/web/dev/tailwindcss.min.js"></script>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600&family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+  <style>
+    :root {
+      --font-sans: 'Plus Jakarta Sans', -apple-system, BlinkMacSystemFont, sans-serif;
+      --font-mono: 'JetBrains Mono', monospace;
+    }
+    body {
+      font-family: var(--font-sans);
+    }
+    .font-mono {
+      font-family: var(--font-mono);
+    }
+    /* Smooth glowing borders and glass effects */
+    .glass-panel {
+      background: rgba(15, 23, 42, 0.72);
+      backdrop-filter: blur(16px);
+      -webkit-backdrop-filter: blur(16px);
+      border: 1px solid rgba(255, 255, 255, 0.08);
+    }
+    .light .glass-panel {
+      background: rgba(255, 255, 255, 0.88);
+      border: 1px solid rgba(15, 23, 42, 0.08);
+    }
+    .glow-aura {
+      box-shadow: 0 0 45px -10px rgba(56, 189, 248, 0.25);
+    }
+    .halo-orange {
+      box-shadow: 0 0 50px -5px rgba(249, 115, 22, 0.35);
+    }
+    .halo-purple {
+      box-shadow: 0 0 50px -5px rgba(168, 85, 247, 0.35);
+    }
+    .halo-emerald {
+      box-shadow: 0 0 50px -5px rgba(16, 185, 129, 0.35);
+    }
+    /* Subtle grid backdrop */
+    .tech-grid {
+      background-size: 32px 32px;
+      background-image: 
+        linear-gradient(to right, rgba(255, 255, 255, 0.03) 1px, transparent 1px),
+        linear-gradient(to bottom, rgba(255, 255, 255, 0.03) 1px, transparent 1px);
+    }
+    .light .tech-grid {
+      background-image: 
+        linear-gradient(to right, rgba(15, 23, 42, 0.04) 1px, transparent 1px),
+        linear-gradient(to bottom, rgba(15, 23, 42, 0.04) 1px, transparent 1px);
+    }
+    /* Pulse keyframes */
+    @keyframes pulseSlow {
+      0%, 100% { transform: scale(1); opacity: 0.85; }
+      50% { transform: scale(1.08); opacity: 1; }
+    }
+    .animate-pulse-slow {
+      animation: pulseSlow 3s cubic-bezier(0.4, 0, 0.6, 1) infinite;
+    }
+    /* Custom scrollbar */
+    ::-webkit-scrollbar {
+      width: 6px;
+      height: 6px;
+    }
+    ::-webkit-scrollbar-track {
+      background: transparent;
+    }
+    ::-webkit-scrollbar-thumb {
+      background: rgba(148, 163, 184, 0.25);
+      border-radius: 9999px;
+    }
+  </style>
+</head>
+<body class="bg-[#090D16] text-slate-100 antialiased selection:bg-sky-500/30 selection:text-sky-200 transition-colors duration-200">
+
+  <!-- THEME TOGGLE & ANNOUNCEMENT BAR (TOP) -->
+  <div class="border-b border-white/5 bg-slate-950/60 backdrop-blur px-4 py-1.5 text-xs font-mono text-slate-400 flex items-center justify-between">
+    <div class="flex items-center gap-3">
+      <span class="inline-flex items-center gap-1.5 text-emerald-400 font-medium">
+        <span class="h-1.5 w-1.5 rounded-full bg-emerald-400 animate-ping"></span>
+        FALKORDB + TIMESCALEDB DUAL-STORE ACTIVE
+      </span>
+      <span class="hidden md:inline text-slate-600">|</span>
+      <span class="hidden md:inline text-slate-400">NSE Official Bhavcopy EOD Synced · 30m Reg-30 Pipeline</span>
+    </div>
+    <div class="flex items-center gap-4">
+      <button onclick="toggleTheme()" class="hover:text-white transition flex items-center gap-1.5 text-slate-400">
+        <span id="themeIcon">☀️ Light Mode</span>
+      </button>
+      <a href="#api-section" class="hover:text-sky-400 transition hidden sm:inline">REST & MCP Specs ↗</a>
+      <span class="text-slate-600">|</span>
+      <button onclick="openCommandPalette()" class="bg-white/5 hover:bg-white/10 text-slate-300 px-2 py-0.5 rounded border border-white/10 flex items-center gap-1">
+        <span>⌘K</span>
+        <span class="text-slate-500 text-[11px]">Command</span>
+      </button>
+    </div>
+  </div>
+
+  <!-- NAVIGATION BAR (Jamie McKaye clean architectural header) -->
+  <header class="sticky top-0 z-40 border-b border-white/10 bg-[#090D16]/80 backdrop-blur-md px-6 py-4">
+    <div class="max-w-7xl mx-auto flex items-center justify-between">
+      <div class="flex items-center gap-6">
+        <a href="#" class="flex items-center gap-2.5 group">
+          <div class="h-8 w-8 rounded-lg bg-gradient-to-tr from-sky-500 via-indigo-500 to-purple-500 p-0.5 shadow-lg shadow-sky-500/20 group-hover:shadow-sky-500/40 transition">
+            <div class="h-full w-full bg-[#090D16] rounded-[6px] flex items-center justify-center">
+              <svg class="w-4 h-4 text-sky-400" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <circle cx="6" cy="6" r="3" />
+                <circle cx="18" cy="6" r="3" />
+                <circle cx="18" cy="18" r="3" />
+                <circle cx="6" cy="18" r="3" />
+                <path d="M9 6h6M6 9v6M18 9v6M9 18h6M8.5 8.5l7 7" stroke-dasharray="2 2" />
+              </svg>
+            </div>
+          </div>
+          <div>
+            <div class="font-bold text-base tracking-tight text-white flex items-center gap-2">
+              stockGraph
+              <span class="text-[10px] font-mono px-1.5 py-0.5 rounded bg-sky-500/10 text-sky-400 border border-sky-500/20">Phase 1 Live</span>
+            </div>
+            <p class="text-[11px] font-mono text-slate-400">Temporal GraphRAG for Indian Equities</p>
+          </div>
+        </a>
+      </div>
+
+      <nav class="hidden lg:flex items-center gap-7 text-sm font-medium text-slate-300">
+        <a href="#interactive-graph" class="hover:text-white transition flex items-center gap-1.5">
+          <span class="h-1.5 w-1.5 rounded-full bg-sky-400"></span>
+          Constellation Graph
+        </a>
+        <a href="#pillars" class="hover:text-white transition">4 Core Pillars</a>
+        <a href="#architecture" class="hover:text-white transition">Dual-Store Arch</a>
+        <a href="#api-section" class="hover:text-white transition">API & MCP Server</a>
+        <a href="#dossier-preview" class="hover:text-white transition">Dossier Engine</a>
+      </nav>
+
+      <div class="flex items-center gap-3">
+        <button onclick="scrollToGraph('TATASTEEL')" class="bg-gradient-to-r from-sky-500 to-indigo-600 hover:from-sky-400 hover:to-indigo-500 text-white font-medium text-xs px-4 py-2 rounded-lg shadow-lg shadow-sky-500/20 transition active:scale-95 flex items-center gap-2">
+          <span>Explore Graph</span>
+          <svg class="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M14 5l7 7m0 0l-7 7m7-7H3"/></svg>
+        </button>
+      </div>
+    </div>
+  </header>
+
+  <!-- HERO SECTION -->
+  <section class="relative pt-16 pb-20 overflow-hidden border-b border-white/5 tech-grid">
+    <div class="max-w-6xl mx-auto px-6 relative z-10 text-center">
+      
+      <!-- Eyebrow badge -->
+      <div class="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-sky-500/10 border border-sky-500/20 text-sky-400 text-xs font-mono mb-6">
+        <span class="h-2 w-2 rounded-full bg-sky-400"></span>
+        INDIAN EQUITIES (NSE/BSE) · DUAL-STORE GRAPHRAG
+      </div>
+
+      <!-- Main Headline -->
+      <h1 class="text-4xl sm:text-6xl font-extrabold tracking-tight text-white max-w-4xl mx-auto leading-[1.12]">
+        The Stock Intelligence Engine That Connects The <span class="bg-gradient-to-r from-sky-400 via-indigo-300 to-purple-400 bg-clip-text text-transparent">Invisible Dots</span>.
+      </h1>
+
+      <!-- Subheadline -->
+      <p class="mt-6 text-base sm:text-lg text-slate-400 max-w-2xl mx-auto leading-relaxed">
+        Equity markets don't live in isolated spreadsheets. When global coking coal spikes, when RBI raises repo rates, or when China unleashes infrastructure stimulus, StockGraph computes the multi-hop transmission across your stock universe with zero hallucinated edges.
+      </p>
+
+      <!-- Quick Ticker Chips -->
+      <div class="mt-8 flex flex-wrap items-center justify-center gap-2 text-xs font-mono text-slate-400">
+        <span class="text-slate-500">Jump straight into graph:</span>
+        <button onclick="selectEntity('TATASTEEL')" class="px-2.5 py-1 rounded-md bg-white/5 hover:bg-sky-500/20 hover:text-sky-300 border border-white/10 transition">TATASTEEL (Metals)</button>
+        <button onclick="selectEntity('RELIANCE')" class="px-2.5 py-1 rounded-md bg-white/5 hover:bg-sky-500/20 hover:text-sky-300 border border-white/10 transition">RELIANCE (Energy/Retail)</button>
+        <button onclick="selectEntity('HDFCBANK')" class="px-2.5 py-1 rounded-md bg-white/5 hover:bg-sky-500/20 hover:text-sky-300 border border-white/10 transition">HDFCBANK (Financials)</button>
+        <button onclick="selectEntity('BRENT_CRUDE')" class="px-2.5 py-1 rounded-md bg-white/5 hover:bg-amber-500/20 hover:text-amber-300 border border-white/10 transition">BRENT_CRUDE (Commodity)</button>
+        <button onclick="selectEntity('RBI_REPO_RATE')" class="px-2.5 py-1 rounded-md bg-white/5 hover:bg-purple-500/20 hover:text-purple-300 border border-white/10 transition">RBI_REPO_RATE (Macro)</button>
+      </div>
+
+      <!-- Hero Actions -->
+      <div class="mt-8 flex flex-wrap items-center justify-center gap-4">
+        <a href="#interactive-graph" class="px-6 py-3 rounded-xl bg-white text-slate-950 font-semibold text-sm hover:bg-slate-200 transition shadow-xl flex items-center gap-2">
+          <span>Interact with Constellation Graph</span>
+          <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"/></svg>
+        </a>
+        <a href="#api-section" class="px-6 py-3 rounded-xl bg-slate-900 hover:bg-slate-800 text-slate-200 border border-white/10 font-mono text-xs transition flex items-center gap-2">
+          <span class="text-sky-400">$</span>
+          <span>curl GET /api/v1/stocks/TATASTEEL/context</span>
+        </a>
+      </div>
+
+      <!-- Trust Metrics Bar -->
+      <div class="mt-14 pt-8 border-t border-white/5 grid grid-cols-2 md:grid-cols-4 gap-6 text-left">
+        <div class="border-l-2 border-sky-500/40 pl-4">
+          <div class="text-2xl font-bold font-mono text-white">0% Numbers</div>
+          <div class="text-xs text-slate-400 mt-1">In Graph (Postgres stores all quant series strictly)</div>
+        </div>
+        <div class="border-l-2 border-emerald-500/40 pl-4">
+          <div class="text-2xl font-bold font-mono text-white">100% Traceable</div>
+          <div class="text-xs text-slate-400 mt-1">Every metric cites vendor_id + vendor_as_of</div>
+        </div>
+        <div class="border-l-2 border-purple-500/40 pl-4">
+          <div class="text-2xl font-bold font-mono text-white">&ge; 0.65 Confidence</div>
+          <div class="text-xs text-slate-400 mt-1">Enforced threshold for all inferred ontology edges</div>
+        </div>
+        <div class="border-l-2 border-amber-500/40 pl-4">
+          <div class="text-2xl font-bold font-mono text-white">LAST_6M / 1Y</div>
+          <div class="text-xs text-slate-400 mt-1">Strict temporal window bounds (no arbitrary drift)</div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ============================================================== -->
+  <!-- KUNUMI-STYLE INTERACTIVE CONSTELLATION GRAPH SECTION (SHOWPIECE) -->
+  <!-- Inspired by https://www.kunuminst.org/en and frontend/screenshots/graphsection -->
+  <!-- ============================================================== -->
+  <section id="interactive-graph" class="relative py-12 px-4 sm:px-6 max-w-7xl mx-auto">
+    
+    <!-- Section Header -->
+    <div class="flex flex-col sm:flex-row sm:items-end justify-between gap-4 mb-6">
+      <div>
+        <div class="flex items-center gap-2 text-xs font-mono text-sky-400 uppercase tracking-widest">
+          <span class="h-1.5 w-1.5 rounded-full bg-sky-400 animate-pulse"></span>
+          Interactive Visual Explorer
+        </div>
+        <h2 class="text-2xl sm:text-3xl font-extrabold text-white mt-1">
+          The StockGraph Constellation
+        </h2>
+        <p class="text-xs sm:text-sm text-slate-400 max-w-xl mt-1">
+          Click on any celestial node. Watch connected edges blossom to commodities, macro drivers, and Reg-30 filings. Connected nodes transform into interactive preview cards.
+        </p>
+      </div>
+
+      <!-- Controls & View Mode -->
+      <div class="flex items-center gap-2 bg-slate-900/90 border border-white/10 p-1 rounded-xl text-xs font-mono">
+        <button id="viewConstellationBtn" onclick="switchGraphMode('constellation')" class="px-3 py-1.5 rounded-lg bg-sky-500/20 text-sky-300 border border-sky-500/30 font-medium">Constellation</button>
+        <button id="viewClusterBtn" onclick="switchGraphMode('cluster')" class="px-3 py-1.5 rounded-lg hover:bg-white/5 text-slate-400">Radial Cluster</button>
+        <button id="viewLinearBtn" onclick="switchGraphMode('linear')" class="px-3 py-1.5 rounded-lg hover:bg-white/5 text-slate-400">Linear Flow</button>
+      </div>
+    </div>
+
+    <!-- MAIN GRAPH CONTAINER -->
+    <div class="relative w-full h-[620px] rounded-2xl border border-white/10 bg-[#0B0F19] overflow-hidden shadow-2xl">
+      
+      <!-- Interactive HTML5 Canvas for Stars and Edges -->
+      <canvas id="graphCanvas" class="absolute inset-0 w-full h-full cursor-crosshair"></canvas>
+
+      <!-- FLOATING SEARCH PILL AT TOP (Matching image.png & Kunumi style) -->
+      <div class="absolute top-6 inset-x-0 mx-auto w-full max-w-md px-4 z-20">
+        <div class="glass-panel rounded-full px-4 py-2.5 shadow-2xl flex items-center justify-between gap-3 border border-white/15">
+          <div class="flex items-center gap-2 flex-1 min-w-0">
+            <span class="text-slate-400 text-xs font-mono">I want to learn about:</span>
+            <input id="graphSearchInput" type="text" value="TATASTEEL" oninput="handleSearchInput(this.value)" class="bg-transparent text-sm font-semibold text-white focus:outline-none w-full placeholder-slate-500 truncate" placeholder="e.g. RELIANCE, CRUDE...">
+          </div>
+          <div class="flex items-center gap-2 shrink-0">
+            <span id="nodeTypeBadge" class="text-[11px] font-mono px-2 py-0.5 rounded-full bg-sky-500/20 text-sky-300 border border-sky-500/30">Stock</span>
+            <button onclick="clearSearch()" class="h-6 w-6 rounded-full hover:bg-white/10 flex items-center justify-center text-slate-400 hover:text-white transition">✕</button>
+          </div>
+        </div>
+      </div>
+
+      <!-- TRANSFORMED NODE CARDS (OVERLAID ON GRAPH - Matching image.png) -->
+      <div id="graphCardOverlay" class="absolute inset-0 pointer-events-none z-10 p-6 flex items-center justify-center">
+        <!-- Rendered dynamically by JavaScript -->
+      </div>
+
+      <!-- BOTTOM CONTROL & ACTION DOCK (Matching image.png / Kunumi floating bar) -->
+      <div class="absolute bottom-6 inset-x-0 mx-auto w-full max-w-2xl px-4 z-20">
+        <div class="glass-panel rounded-2xl p-3 shadow-2xl flex flex-col sm:flex-row items-center justify-between gap-3 border border-white/15">
+          <div class="flex items-center gap-3">
+            <div id="activeNodeAvatar" class="h-9 w-9 rounded-xl bg-sky-500/20 border border-sky-500/40 flex items-center justify-center font-mono font-bold text-sky-300 text-xs">
+              TS
+            </div>
+            <div>
+              <div class="flex items-center gap-2">
+                <span id="activeNodeTitle" class="text-sm font-bold text-white">Tata Steel Limited</span>
+                <span id="activeNodeSubtitle" class="text-[10px] font-mono px-1.5 py-0.2 rounded bg-white/10 text-slate-300">NSE: TATASTEEL</span>
+              </div>
+              <div id="activeNodeMeta" class="text-xs text-slate-400 flex items-center gap-2 mt-0.5">
+                <span>4 Connected Shocks</span>
+                <span>•</span>
+                <span class="text-emerald-400">High Conviction (0.89)</span>
+              </div>
+            </div>
+          </div>
+
+          <div class="flex items-center gap-2 w-full sm:w-auto">
+            <button onclick="openDetailedViewModal()" class="w-full sm:w-auto px-4 py-2 rounded-xl bg-sky-500 hover:bg-sky-400 text-slate-950 font-bold text-xs transition shadow-lg shadow-sky-500/25 flex items-center justify-center gap-1.5 active:scale-95">
+              <span>Open Detailed View</span>
+              <svg class="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7"/></svg>
+            </button>
+          </div>
+        </div>
+      </div>
+
+      <!-- Hint text in corner -->
+      <div class="absolute bottom-3 left-4 text-[10px] font-mono text-slate-500 pointer-events-none hidden sm:block">
+        Click any dot to re-center • Drag or hover to inspect graph edges • ⌘K to jump
+      </div>
+    </div>
+
+    <!-- ============================================================== -->
+    <!-- DETAILED VIEW MODAL / SLIDE-IN (Matches detailed view.png) -->
+    <!-- ============================================================== -->
+    <div id="detailedViewModal" class="fixed inset-0 z-50 bg-black/80 backdrop-blur-xl flex items-center justify-center p-4 sm:p-6 opacity-0 pointer-events-none transition-all duration-300">
+      <div class="relative w-full max-w-2xl max-h-[90vh] flex flex-col bg-[#0F1422] rounded-3xl border border-white/15 shadow-2xl overflow-hidden scale-95 transition-transform duration-300" id="detailedModalBox">
+        
+        <!-- Header Pill Filter (Directly styled like detailed view.png search capsule) -->
+        <div class="p-6 border-b border-white/10 bg-slate-950/40 flex items-center justify-between gap-4">
+          <div class="glass-panel px-3 py-1.5 rounded-full flex items-center gap-2 text-xs font-mono border border-white/15">
+            <span class="px-2 py-0.5 rounded-full bg-white text-slate-900 font-semibold" id="modalPill1">TATASTEEL</span>
+            <span class="px-2 py-0.5 rounded-full bg-white/10 text-slate-300" id="modalPill2">Metals & Mining</span>
+            <span class="text-slate-500 text-[11px] hidden sm:inline">window=LAST_6M</span>
+          </div>
+
+          <div class="flex items-center gap-2">
+            <button onclick="alert('Exported Dossier JSON')" title="Export JSON" class="h-8 w-8 rounded-full bg-white/5 hover:bg-white/10 flex items-center justify-center text-slate-400 hover:text-white transition">
+              <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 12h.01M12 12h.01M19 12h.01M6 12a1 1 0 11-2 0 1 1 0 012 0zm7 0a1 1 0 11-2 0 1 1 0 012 0zm7 0a1 1 0 11-2 0 1 1 0 012 0z"/></svg>
+            </button>
+            <button onclick="closeDetailedViewModal()" class="h-8 w-8 rounded-full bg-white/5 hover:bg-rose-500/20 text-slate-400 hover:text-rose-300 flex items-center justify-center transition">
+              ✕
+            </button>
+          </div>
+        </div>
+
+        <!-- Scrollable Feed of Rich Insight Cards (Matching detailed view.png card layout) -->
+        <div class="overflow-y-auto p-6 space-y-6" id="modalCardsFeed">
+          
+          <!-- Card 1: Halo Ring / Orange Raw Material Shock -->
+          <div class="relative group rounded-2xl bg-[#141A2B] border border-white/10 overflow-hidden halo-orange transition hover:border-amber-500/40">
+            <!-- Top Art/Banner -->
+            <div class="h-44 w-full bg-gradient-to-br from-amber-950 via-[#1a1520] to-[#0d131f] relative flex items-center justify-center overflow-hidden">
+              <div class="absolute inset-0 opacity-40 bg-[radial-gradient(circle_at_center,_var(--tw-gradient-stops))] from-amber-500 via-orange-900 to-transparent"></div>
+              <!-- Solar Eclipse / Gravitational Glow Graphic (matches detailed view.png eclipse graphic) -->
+              <div class="relative w-28 h-28 rounded-full border border-orange-500/60 shadow-[0_0_50px_rgba(249,115,22,0.6)] flex items-center justify-center">
+                <div class="w-20 h-20 rounded-full bg-black/90 border border-orange-400/40 flex items-center justify-center text-[10px] font-mono text-amber-300">
+                  -8.2% MARGIN
+                </div>
+              </div>
+              <div class="absolute top-3 right-3 text-[11px] font-mono px-2 py-0.5 rounded bg-black/60 text-amber-400 border border-amber-500/30">
+                [:EXPOSED_TO] · 0.88 Conf
+              </div>
+            </div>
+
+            <!-- Card Content -->
+            <div class="p-5">
+              <div class="flex items-center gap-2 mb-2">
+                <span class="text-[11px] font-mono px-2 py-0.5 rounded bg-white/5 text-slate-300 border border-white/10">Commodity Shock</span>
+                <span class="text-[11px] font-mono px-2 py-0.5 rounded bg-amber-500/10 text-amber-400 border border-amber-500/20">COKING_COAL</span>
+                <span class="text-xs text-slate-500 ml-auto">20 min ago · Reuters/Platts</span>
+              </div>
+              <h3 class="text-base font-bold text-white leading-snug group-hover:text-amber-300 transition">
+                Queensland Coking Coal Port Disruptions Trigger Raw Material Cost Inflation
+              </h3>
+              <p class="text-xs text-slate-400 mt-2 leading-relaxed">
+                <strong class="text-slate-200">Causal Rationale:</strong> Tata Steel's domestic blast furnace operations consume ~0.77 tonnes of imported hard coking coal per tonne of hot metal. Premium low-volatile coking coal FOB Australia jumped +$24/tonne, exerting immediate 180-220 bps EBITDA margin pressure.
+              </p>
+              <div class="mt-4 pt-3 border-t border-white/5 flex items-center justify-between text-xs font-mono text-slate-500">
+                <span>Vendor: PLATTS_APAC</span>
+                <span class="text-amber-400">Margin Impact: NEGATIVE</span>
+              </div>
+            </div>
+          </div>
+
+          <!-- Card 2: Halo Purple / Macro Regulation Shocks -->
+          <div class="relative group rounded-2xl bg-[#141A2B] border border-white/10 overflow-hidden halo-purple transition hover:border-purple-500/40">
+            <div class="h-36 w-full bg-gradient-to-br from-purple-950 via-[#181126] to-[#0d131f] relative flex items-center justify-center overflow-hidden">
+              <div class="absolute inset-0 opacity-30 bg-[radial-gradient(circle_at_center,_var(--tw-gradient-stops))] from-purple-500 via-indigo-900 to-transparent"></div>
+              <div class="relative flex items-center gap-4">
+                <div class="text-center">
+                  <div class="text-xl font-bold font-mono text-purple-300">6.50%</div>
+                  <div class="text-[10px] font-mono text-slate-400">RBI REPO RATE</div>
+                </div>
+                <div class="text-slate-600 font-mono">→</div>
+                <div class="text-center">
+                  <div class="text-xl font-bold font-mono text-purple-300">Broad Contagion</div>
+                  <div class="text-[10px] font-mono text-slate-400">FINANCIAL TRANSMISSION</div>
+                </div>
+              </div>
+              <div class="absolute top-3 right-3 text-[11px] font-mono px-2 py-0.5 rounded bg-black/60 text-purple-400 border border-purple-500/30">
+                [:SENSITIVE_TO_MACRO]
+              </div>
+            </div>
+
+            <div class="p-5">
+              <div class="flex items-center gap-2 mb-2">
+                <span class="text-[11px] font-mono px-2 py-0.5 rounded bg-white/5 text-slate-300 border border-white/10">Macro Shock</span>
+                <span class="text-[11px] font-mono px-2 py-0.5 rounded bg-purple-500/10 text-purple-400 border border-purple-500/20">BROAD_SCOPE</span>
+                <span class="text-xs text-slate-500 ml-auto">2h ago · RBI MPC Bulletin</span>
+              </div>
+              <h3 class="text-base font-bold text-white leading-snug group-hover:text-purple-300 transition">
+                MPC Retains Hawkish Stance on High Food Inflation & System Liquidity Deficit
+              </h3>
+              <p class="text-xs text-slate-400 mt-2 leading-relaxed">
+                <strong class="text-slate-200">Transmission Logic:</strong> Sustained elevated rates increase borrowing costs on capex cycles and keep 10-year G-sec yields pinned above 7.15%, raising weighted average cost of capital (WACC) across leveraged infrastructure.
+              </p>
+            </div>
+          </div>
+
+          <!-- Card 3: Halo Emerald / Positive Concall Guidance Chunk -->
+          <div class="relative group rounded-2xl bg-[#141A2B] border border-white/10 overflow-hidden halo-emerald transition hover:border-emerald-500/40">
+            <div class="p-5">
+              <div class="flex items-center gap-2 mb-2">
+                <span class="text-[11px] font-mono px-2 py-0.5 rounded bg-emerald-500/10 text-emerald-400 border border-emerald-500/20">Management Guidance</span>
+                <span class="text-[11px] font-mono px-2 py-0.5 rounded bg-white/5 text-slate-300 border border-white/10">Q2 FY26 Earnings Call</span>
+                <span class="text-xs text-slate-500 ml-auto">Valid: [2026-07-01 → 9999-99-99]</span>
+              </div>
+              <h3 class="text-base font-bold text-white leading-snug group-hover:text-emerald-300 transition">
+                Captive Iron Ore Mines & Kalinganagar Phase-2 Ramp-up to Shield Indian Operations
+              </h3>
+              <p class="text-xs text-slate-400 mt-2 leading-relaxed">
+                Management reiterated 100% captive iron ore self-sufficiency in India through 2030. 5 MTPA Kalinganagar expansion commercialized, reducing conversion cost by ₹2,400/t.
+              </p>
+              <div class="mt-4 pt-3 border-t border-white/5 flex items-center justify-between text-xs font-mono text-slate-400">
+                <span class="text-emerald-400 font-semibold">100% Captive Iron Ore</span>
+                <span class="text-slate-500">Node: GuidanceChunk (is_latest: true)</span>
+              </div>
+            </div>
+          </div>
+
+        </div>
+
+        <!-- Footer -->
+        <div class="p-4 border-t border-white/10 bg-slate-950/60 flex items-center justify-between text-xs font-mono text-slate-400">
+          <span>Showing 3 Active Inferred Graph Paths</span>
+          <button onclick="closeDetailedViewModal()" class="px-3 py-1.5 rounded-lg bg-white/10 hover:bg-white/20 text-white transition">
+            Close & Return to Constellation
+          </button>
+        </div>
+
+      </div>
+    </div>
+  </section>
+
+  <!-- ============================================================== -->
+  <!-- FOUR TECHNICAL PILLARS (Jamie McKaye "No Fluff" Architecture) -->
+  <!-- ============================================================== -->
+  <section id="pillars" class="py-16 px-6 max-w-7xl mx-auto border-t border-white/5">
+    <div class="max-w-3xl mb-12">
+      <div class="text-xs font-mono text-sky-400 uppercase tracking-widest mb-1">Architectural Foundations</div>
+      <h2 class="text-3xl font-extrabold text-white">
+        Built for Truth. Engineered Against Hallucination.
+      </h2>
+      <p class="text-sm text-slate-400 mt-2">
+        Standard vector embeddings fail on equities because semantic proximity does not equal economic causality. StockGraph enforces four non-negotiable architectural layers:
+      </p>
+    </div>
+
+    <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
+      
+      <!-- Pillar 1 -->
+      <div class="glass-panel p-6 rounded-2xl border border-white/10 hover:border-sky-500/30 transition group">
+        <div class="flex items-center justify-between mb-4">
+          <span class="text-xs font-mono px-2.5 py-1 rounded bg-sky-500/10 text-sky-400 border border-sky-500/20">01 / FIRST-ORDER FACTS</span>
+          <span class="text-xs font-mono text-slate-500">TimescaleDB Primary</span>
+        </div>
+        <h3 class="text-lg font-bold text-white group-hover:text-sky-300 transition">
+          Official Exchange Bhavcopy & Reg-30 Ground Truth
+        </h3>
+        <p class="text-xs sm:text-sm text-slate-400 mt-2 leading-relaxed">
+          Never rely on scraped or approximate trading volume. StockGraph uses official NSE Bhavcopy (<code class="text-slate-200">sec_bhavdata_full.csv</code>) as the immutable source of truth for Delivery % and institutional turnover, computing 20-day delivery z-scores mathematically in SQL.
+        </p>
+        <div class="mt-4 pt-4 border-t border-white/5 flex flex-wrap gap-2 text-[11px] font-mono text-slate-400">
+          <span class="bg-white/5 px-2 py-0.5 rounded">2 Checkpoints/Day (OPEN/CLOSE)</span>
+          <span class="bg-white/5 px-2 py-0.5 rounded">Bulk/Block CSV Deals</span>
+          <span class="bg-white/5 px-2 py-0.5 rounded">SEBI SAST Insiders</span>
+        </div>
+      </div>
+
+      <!-- Pillar 2 -->
+      <div class="glass-panel p-6 rounded-2xl border border-white/10 hover:border-amber-500/30 transition group">
+        <div class="flex items-center justify-between mb-4">
+          <span class="text-xs font-mono px-2.5 py-1 rounded bg-amber-500/10 text-amber-400 border border-amber-500/20">02 / SECOND-ORDER TRANSMISSION</span>
+          <span class="text-xs font-mono text-slate-500">DynamicOntologyBuilder</span>
+        </div>
+        <h3 class="text-lg font-bold text-white group-hover:text-amber-300 transition">
+          Dynamic LLM Ontology with Context Injection
+        </h3>
+        <p class="text-xs sm:text-sm text-slate-400 mt-2 leading-relaxed">
+          Static hand-coded graphs rot overnight. When an LLM evaluates stock relationships, StockGraph injects a rich <code class="text-slate-200">StockContextCard</code> (business model, raw materials, revenue segments, and concall guidance). The LLM determines margin sensitivity with enforced confidence floors (&ge; 0.65).
+        </p>
+        <div class="mt-4 pt-4 border-t border-white/5 flex flex-wrap gap-2 text-[11px] font-mono text-slate-400">
+          <span class="bg-white/5 px-2 py-0.5 rounded">[:EXPOSED_TO]</span>
+          <span class="bg-white/5 px-2 py-0.5 rounded">[:SENSITIVE_TO_MACRO]</span>
+          <span class="bg-white/5 px-2 py-0.5 rounded">[:RELATED_TO] Commodities</span>
+        </div>
+      </div>
+
+      <!-- Pillar 3 -->
+      <div class="glass-panel p-6 rounded-2xl border border-white/10 hover:border-purple-500/30 transition group">
+        <div class="flex items-center justify-between mb-4">
+          <span class="text-xs font-mono px-2.5 py-1 rounded bg-purple-500/10 text-purple-400 border border-purple-500/20">03 / MULTI-DAY NARRATIVE CHAINS</span>
+          <span class="text-xs font-mono text-slate-500">NewsCorrelator (L1-L4)</span>
+        </div>
+        <h3 class="text-lg font-bold text-white group-hover:text-purple-300 transition">
+          Four-Layer Deduplication & Cross-News Correlation
+        </h3>
+        <p class="text-xs sm:text-sm text-slate-400 mt-2 leading-relaxed">
+          Unfolding market stories arrive across multiple days from different providers. StockGraph executes L1 URL deduplication, L2 headline normalization, L3 vector deduplication (cosine &ge; 0.92), and L4 causal chaining (<code class="text-slate-200">[:CORRELATED_WITH]</code>) to reconstruct full market narrative arcs.
+        </p>
+        <div class="mt-4 pt-4 border-t border-white/5 flex flex-wrap gap-2 text-[11px] font-mono text-slate-400">
+          <span class="bg-white/5 px-2 py-0.5 rounded">Deterministic SHA-1 IDs</span>
+          <span class="bg-white/5 px-2 py-0.5 rounded">14-Day Trailing Window</span>
+          <span class="bg-white/5 px-2 py-0.5 rounded">CAUSAL_CHAIN Edges</span>
+        </div>
+      </div>
+
+      <!-- Pillar 4 -->
+      <div class="glass-panel p-6 rounded-2xl border border-white/10 hover:border-emerald-500/30 transition group">
+        <div class="flex items-center justify-between mb-4">
+          <span class="text-xs font-mono px-2.5 py-1 rounded bg-emerald-500/10 text-emerald-400 border border-emerald-500/20">04 / BI-TEMPORAL DOSSIER RAG</span>
+          <span class="text-xs font-mono text-slate-500">Fixed Windows Only</span>
+        </div>
+        <h3 class="text-lg font-bold text-white group-hover:text-emerald-300 transition">
+          Strict Temporal Filtering & Superseding Nodes
+        </h3>
+        <p class="text-xs sm:text-sm text-slate-400 mt-2 leading-relaxed">
+          Standard RAG suffers from "temporal collapse" (retrieving old Q1 guidance alongside Q3). StockGraph queries are strictly bounded to <code class="text-slate-200">window=LAST_6M | LAST_1Y</code>. Outdated quarterly ratios rotate with <code class="text-slate-200">[:SUPERSEDES]</code> links, ensuring your agent views the exact state of reality.
+        </p>
+        <div class="mt-4 pt-4 border-t border-white/5 flex flex-wrap gap-2 text-[11px] font-mono text-slate-400">
+          <span class="bg-white/5 px-2 py-0.5 rounded">valid_from_ts / valid_to_ts</span>
+          <span class="bg-white/5 px-2 py-0.5 rounded">is_latest: Boolean</span>
+          <span class="bg-white/5 px-2 py-0.5 rounded">Cacheable 2-Key Storage</span>
+        </div>
+      </div>
+
+    </div>
+  </section>
+
+  <!-- ============================================================== -->
+  <!-- DUAL-STORE ARCHITECTURE VISUALIZER -->
+  <!-- ============================================================== -->
+  <section id="architecture" class="py-16 px-6 max-w-7xl mx-auto border-t border-white/5">
+    <div class="glass-panel rounded-3xl p-8 border border-white/10">
+      <div class="text-center max-w-2xl mx-auto mb-10">
+        <div class="text-xs font-mono text-sky-400 uppercase tracking-widest">Strict Dual-Store Separation</div>
+        <h2 class="text-2xl sm:text-3xl font-extrabold text-white mt-1">
+          Numbers in SQL. Relationships in FalkorDB.
+        </h2>
+        <p class="text-xs sm:text-sm text-slate-400 mt-2">
+          Rule 2 of our architectural invariant: Never store floating-point numeric series in graph node properties.
+        </p>
+      </div>
+
+      <div class="grid grid-cols-1 md:grid-cols-2 gap-8 items-stretch">
+        
+        <!-- Left: FalkorDB Graph -->
+        <div class="bg-slate-950/70 rounded-2xl p-6 border border-sky-500/30 relative overflow-hidden flex flex-col justify-between">
+          <div class="absolute -top-12 -right-12 w-36 h-36 bg-sky-500/10 rounded-full blur-2xl"></div>
+          <div>
+            <div class="flex items-center justify-between mb-4">
+              <span class="text-xs font-mono font-bold text-sky-400 flex items-center gap-1.5">
+                <span class="h-2 w-2 rounded-full bg-sky-400"></span>
+                FALKORDB (GRAPH + VECTOR RAG)
+              </span>
+              <span class="text-[11px] font-mono text-slate-500">Cypher + vecf32</span>
+            </div>
+            <ul class="space-y-3 text-xs text-slate-300">
+              <li class="flex items-start gap-2">
+                <span class="text-sky-400 font-bold font-mono">✓</span>
+                <span><strong>Canonical Node Catalog:</strong> Stock, Commodity, MacroFactor, Sector</span>
+              </li>
+              <li class="flex items-start gap-2">
+                <span class="text-sky-400 font-bold font-mono">✓</span>
+                <span><strong>Inferred Causal Edges:</strong> EXPOSED_TO, SENSITIVE_TO_MACRO, SUPPLIES_TO</span>
+              </li>
+              <li class="flex items-start gap-2">
+                <span class="text-sky-400 font-bold font-mono">✓</span>
+                <span><strong>News Routing & Correlation:</strong> DIRECTLY_IMPACTS, SHOCKS, CORRELATED_WITH</span>
+              </li>
+              <li class="flex items-start gap-2">
+                <span class="text-sky-400 font-bold font-mono">✓</span>
+                <span><strong>Guidance RAG:</strong> Vector embeddings with bi-temporal validity intervals</span>
+              </li>
+            </ul>
+          </div>
+          <div class="mt-6 pt-4 border-t border-white/5 font-mono text-[11px] text-slate-400 bg-black/40 p-3 rounded-lg">
+            CALL db.idx.vector.queryNodes('NewsEvent', 'embedding', 5, vecf32($emb))
+          </div>
+        </div>
+
+        <!-- Right: TimescaleDB -->
+        <div class="bg-slate-950/70 rounded-2xl p-6 border border-indigo-500/30 relative overflow-hidden flex flex-col justify-between">
+          <div class="absolute -top-12 -right-12 w-36 h-36 bg-indigo-500/10 rounded-full blur-2xl"></div>
+          <div>
+            <div class="flex items-center justify-between mb-4">
+              <span class="text-xs font-mono font-bold text-indigo-400 flex items-center gap-1.5">
+                <span class="h-2 w-2 rounded-full bg-indigo-400"></span>
+                POSTGRESQL / TIMESCALEDB
+              </span>
+              <span class="text-[11px] font-mono text-slate-500">Hypertable Series</span>
+            </div>
+            <ul class="space-y-3 text-xs text-slate-300">
+              <li class="flex items-start gap-2">
+                <span class="text-indigo-400 font-bold font-mono">✓</span>
+                <span><strong>2 Daily Checkpoints:</strong> OPEN (~9:30 AM) and CLOSE (~7:00 PM Bhavcopy)</span>
+              </li>
+              <li class="flex items-start gap-2">
+                <span class="text-indigo-400 font-bold font-mono">✓</span>
+                <span><strong>Official Bhavcopy Delivery:</strong> Primary truth for delivery % and turnover</span>
+              </li>
+              <li class="flex items-start gap-2">
+                <span class="text-indigo-400 font-bold font-mono">✓</span>
+                <span><strong>SQL-Only Anomalies:</strong> Computed delivery z-scores and valuation percentiles</span>
+              </li>
+              <li class="flex items-start gap-2">
+                <span class="text-indigo-400 font-bold font-mono">✓</span>
+                <span><strong>Provenance Staging:</strong> Immutable raw payloads in vendor_quotes_raw</span>
+              </li>
+            </ul>
+          </div>
+          <div class="mt-6 pt-4 border-t border-white/5 font-mono text-[11px] text-slate-400 bg-black/40 p-3 rounded-lg">
+            SELECT * FROM daily_stock_metrics WHERE session_type = 'CLOSE' AND abs(z) >= 1.8
+          </div>
+        </div>
+
+      </div>
+    </div>
+  </section>
+
+  <!-- ============================================================== -->
+  <!-- API & MCP TOOL SERVER SANDBOX (Jamie McKaye "No Funnel / Plain Code") -->
+  <!-- ============================================================== -->
+  <section id="api-section" class="py-16 px-6 max-w-7xl mx-auto border-t border-white/5">
+    <div class="flex flex-col md:flex-row md:items-end justify-between gap-6 mb-8">
+      <div>
+        <div class="text-xs font-mono text-sky-400 uppercase tracking-widest">Developer & Agent Access</div>
+        <h2 class="text-3xl font-extrabold text-white mt-1">REST API & MCP Tool Server</h2>
+        <p class="text-xs sm:text-sm text-slate-400 mt-2 max-w-2xl">
+          Consume StockGraph directly in your Python quantitative pipelines, or wire the Model Context Protocol (MCP) server directly into Claude Desktop or Cursor IDE.
+        </p>
+      </div>
+
+      <!-- Tab Switcher -->
+      <div class="flex items-center gap-1 bg-slate-900 border border-white/10 p-1 rounded-xl text-xs font-mono">
+        <button id="tabCurlBtn" onclick="switchApiTab('curl')" class="px-3 py-1.5 rounded-lg bg-sky-500/20 text-sky-300 font-semibold border border-sky-500/30">cURL</button>
+        <button id="tabMcpBtn" onclick="switchApiTab('mcp')" class="px-3 py-1.5 rounded-lg text-slate-400 hover:text-white">MCP Tool (Cursor/Claude)</button>
+        <button id="tabPythonBtn" onclick="switchApiTab('python')" class="px-3 py-1.5 rounded-lg text-slate-400 hover:text-white">Python</button>
+        <button id="tabResponseBtn" onclick="switchApiTab('response')" class="px-3 py-1.5 rounded-lg text-slate-400 hover:text-white">Sample Dossier JSON</button>
+      </div>
+    </div>
+
+    <!-- Code Display Window -->
+    <div class="rounded-2xl border border-white/15 bg-[#080C14] overflow-hidden shadow-2xl font-mono text-xs">
+      <div class="bg-slate-950/80 px-4 py-2.5 border-b border-white/10 flex items-center justify-between text-slate-400">
+        <div class="flex items-center gap-2">
+          <span class="h-3 w-3 rounded-full bg-rose-500/80 inline-block"></span>
+          <span class="h-3 w-3 rounded-full bg-amber-500/80 inline-block"></span>
+          <span class="h-3 w-3 rounded-full bg-emerald-500/80 inline-block"></span>
+          <span id="apiTabTitle" class="ml-2 text-slate-300">curl — GET /api/v1/stocks/{ticker}/context</span>
+        </div>
+        <button onclick="copyCodeSnippet()" class="hover:text-white transition flex items-center gap-1.5">
+          <span id="copyFeedback">Copy Snippet</span>
+        </button>
+      </div>
+
+      <pre id="codeSnippetBox" class="p-6 text-slate-300 overflow-x-auto leading-relaxed max-h-96">
+curl -X GET "http://localhost:8000/api/v1/stocks/TATASTEEL/context?window=LAST_6M&limit=50" \
+     -H "Accept: application/json"
+      </pre>
+    </div>
+  </section>
+
+  <!-- ============================================================== -->
+  <!-- FOOTER (Jamie McKaye Open Architecture & Markdown Mirror) -->
+  <!-- ============================================================== -->
+  <footer class="border-t border-white/10 bg-slate-950/80 py-12 px-6">
+    <div class="max-w-7xl mx-auto flex flex-col md:flex-row items-start md:items-center justify-between gap-8">
+      <div>
+        <div class="flex items-center gap-2 font-bold text-base text-white">
+          <span>stockGraph</span>
+          <span class="text-xs font-mono text-slate-500 font-normal">v1.0 (Production Core)</span>
+        </div>
+        <p class="text-xs text-slate-400 mt-1 max-w-sm">
+          High-performance temporal stock intelligence. Dual-store separation powered by FalkorDB, TimescaleDB, and Upstox adapter.
+        </p>
+        <div class="mt-4 flex items-center gap-3 text-xs font-mono text-slate-400">
+          <a href="#" class="hover:text-sky-400 transition underline underline-offset-4">The whole site, plain markdown mirror</a>
+          <span>·</span>
+          <a href="#api-section" class="hover:text-sky-400 transition">OpenAPI JSON (:8000)</a>
+        </div>
+      </div>
+
+      <div class="grid grid-cols-2 sm:grid-cols-3 gap-8 text-xs font-mono text-slate-400">
+        <div>
+          <div class="text-white font-bold mb-2">SERVICES</div>
+          <ul class="space-y-1.5">
+            <li><span class="text-slate-200">StockGraph API</span> (:8000)</li>
+            <li><span class="text-slate-200">Upstox Ingestor</span> (:8001)</li>
+            <li><span class="text-slate-200">FalkorDB Graph</span> (:6379)</li>
+            <li><span class="text-slate-200">TimescaleDB</span> (:5432)</li>
+          </ul>
+        </div>
+        <div>
+          <div class="text-white font-bold mb-2">CADENCES</div>
+          <ul class="space-y-1.5">
+            <li>30m News & Reg-30</li>
+            <li>09:30 AM Market Open</li>
+            <li>19:00 PM Bhavcopy EOD</li>
+            <li>Quarterly Guidance RAG</li>
+          </ul>
+        </div>
+        <div>
+          <div class="text-white font-bold mb-2">STANDARDS</div>
+          <ul class="space-y-1.5">
+            <li>Strict Window Bounds</li>
+            <li>No Graph Numbers</li>
+            <li>Bhavcopy Primacy</li>
+            <li>Zero Free-Text IDs</li>
+          </ul>
+        </div>
+      </div>
+    </div>
+
+    <div class="max-w-7xl mx-auto mt-12 pt-6 border-t border-white/5 flex flex-col sm:flex-row items-center justify-between gap-4 text-[11px] font-mono text-slate-500">
+      <div>© 2026 StockGraph Engine. Designed for Quantitative Trading & Fundamental Equities.</div>
+      <div>Non-commercial wireframe prototype for design and engineering review.</div>
+    </div>
+  </footer>
+
+  <!-- ============================================================== -->
+  <!-- COMMAND PALETTE MODAL (⌘K) -->
+  <!-- ============================================================== -->
+  <div id="cmdPalette" class="fixed inset-0 z-50 bg-black/75 backdrop-blur-md flex items-start justify-center pt-24 px-4 opacity-0 pointer-events-none transition-all duration-200">
+    <div class="w-full max-w-xl bg-[#0F1422] rounded-2xl border border-white/20 shadow-2xl overflow-hidden" onclick="event.stopPropagation()">
+      <div class="p-3 border-b border-white/10 flex items-center gap-3">
+        <span class="text-slate-400 font-mono text-xs">⌘</span>
+        <input id="cmdInput" type="text" placeholder="Type a ticker, commodity, or section name..." oninput="filterPalette(this.value)" class="bg-transparent text-sm text-white w-full focus:outline-none font-mono">
+        <kbd class="text-[10px] font-mono bg-white/10 text-slate-300 px-1.5 py-0.5 rounded">ESC</kbd>
+      </div>
+      <div id="cmdResults" class="p-2 space-y-1 max-h-72 overflow-y-auto text-xs font-mono">
+        <button onclick="paletteSelect('TATASTEEL')" class="w-full text-left px-3 py-2 rounded-lg hover:bg-sky-500/20 text-slate-200 hover:text-sky-300 flex items-center justify-between">
+          <span><strong>TATASTEEL</strong> · Tata Steel Limited (Metals)</span>
+          <span class="text-[10px] text-slate-500">Jump to Graph</span>
+        </button>
+        <button onclick="paletteSelect('RELIANCE')" class="w-full text-left px-3 py-2 rounded-lg hover:bg-sky-500/20 text-slate-200 hover:text-sky-300 flex items-center justify-between">
+          <span><strong>RELIANCE</strong> · Reliance Industries Limited</span>
+          <span class="text-[10px] text-slate-500">Jump to Graph</span>
+        </button>
+        <button onclick="paletteSelect('BRENT_CRUDE')" class="w-full text-left px-3 py-2 rounded-lg hover:bg-amber-500/20 text-slate-200 hover:text-amber-300 flex items-center justify-between">
+          <span><strong>BRENT_CRUDE</strong> · Energy Commodity Benchmark</span>
+          <span class="text-[10px] text-slate-500">Jump to Graph</span>
+        </button>
+        <button onclick="paletteSelect('RBI_REPO_RATE')" class="w-full text-left px-3 py-2 rounded-lg hover:bg-purple-500/20 text-slate-200 hover:text-purple-300 flex items-center justify-between">
+          <span><strong>RBI_REPO_RATE</strong> · Macro Monetary Policy</span>
+          <span class="text-[10px] text-slate-500">Jump to Graph</span>
+        </button>
+        <button onclick="paletteJumpSection('#api-section')" class="w-full text-left px-3 py-2 rounded-lg hover:bg-white/10 text-slate-300 flex items-center justify-between">
+          <span>Documentation & REST Endpoints</span>
+          <span class="text-[10px] text-slate-500">Section</span>
+        </button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ============================================================== -->
+  <!-- JAVASCRIPT: Constellation Simulation & Micro-Interactions -->
+  <!-- ============================================================== -->
+  <script>
+    // --- Mock Graph Data Repository (Matching Canonical Ontology) ---
+    const GRAPH_ENTITIES = {
+      'TATASTEEL': {
+        id: 'TATASTEEL',
+        title: 'Tata Steel Limited',
+        type: 'Stock',
+        sector: 'Metals & Mining',
+        exchange: 'NSE',
+        avatar: 'TS',
+        color: '#38BDF8',
+        edges: [
+          { id: 'COKING_COAL', label: 'EXPOSED_TO', type: 'Commodity', confidence: 0.88, impact: 'NEGATIVE', note: 'Australian coking coal FOB +$24/t raises hot metal conversion cost' },
+          { id: 'HRC_STEEL', label: 'EXPOSED_TO', type: 'Commodity', confidence: 0.94, impact: 'POSITIVE', note: 'Domestic flat steel benchmark realizations' },
+          { id: 'RBI_REPO_RATE', label: 'SENSITIVE_TO_MACRO', type: 'Macro', confidence: 0.72, impact: 'NEGATIVE', note: 'Higher rate elevates capex borrowing costs' },
+          { id: 'CHINA_STIMULUS', label: 'DIRECTLY_IMPACTS', type: 'News', confidence: 0.91, impact: 'POSITIVE', note: 'Beijing infrastructure package lifting regional steel spreads' }
+        ]
+      },
+      'RELIANCE': {
+        id: 'RELIANCE',
+        title: 'Reliance Industries Ltd',
+        type: 'Stock',
+        sector: 'Energy & Retail',
+        exchange: 'NSE',
+        avatar: 'RIL',
+        color: '#38BDF8',
+        edges: [
+          { id: 'BRENT_CRUDE', label: 'EXPOSED_TO', type: 'Commodity', confidence: 0.89, impact: 'MIXED', note: 'Key feedstock for Jamnagar refining & petrochemicals complex' },
+          { id: 'USD_INR_FX', label: 'SENSITIVE_TO_MACRO', type: 'Macro', confidence: 0.82, impact: 'POSITIVE', note: 'Export refining earnings booked in USD benefit from rupee depreciation' },
+          { id: 'TELECOM_TARIFF', label: 'IMPACTS_SECTOR', type: 'News', confidence: 0.86, impact: 'POSITIVE', note: 'Headline tariff hikes lift Jio wireless ARPU projections' }
+        ]
+      },
+      'HDFCBANK': {
+        id: 'HDFCBANK',
+        title: 'HDFC Bank Limited',
+        type: 'Stock',
+        sector: 'Banking & Financials',
+        exchange: 'NSE',
+        avatar: 'HDFC',
+        color: '#38BDF8',
+        edges: [
+          { id: 'RBI_REPO_RATE', label: 'SENSITIVE_TO_MACRO', type: 'Macro', confidence: 0.95, impact: 'MIXED', note: 'Direct NIM repricing transmission on floating loan book' },
+          { id: 'INDIA_10Y_YIELD', label: 'SENSITIVE_TO_MACRO', type: 'Macro', confidence: 0.84, impact: 'NEGATIVE', note: 'Treasury portfolio MTM impact on bond holdings' },
+          { id: 'LDR_COMPLIANCE', label: 'DIRECTLY_IMPACTS', type: 'News', confidence: 0.89, impact: 'POSITIVE', note: 'Post-merger loan-to-deposit ratio normalization milestone' }
+        ]
+      },
+      'BRENT_CRUDE': {
+        id: 'BRENT_CRUDE',
+        title: 'Brent Crude Benchmark',
+        type: 'Commodity',
+        sector: 'Global Energy',
+        exchange: 'Global',
+        avatar: 'OIL',
+        color: '#F97316',
+        edges: [
+          { id: 'RELIANCE', label: 'EXPOSED_TO', type: 'Stock', confidence: 0.89, impact: 'MIXED', note: 'Refinery input & gross refining margin driver' },
+          { id: 'ASIANPAINTS', label: 'EXPOSED_TO', type: 'Stock', confidence: 0.92, impact: 'NEGATIVE', note: 'Crude derivatives comprise >35% of paint raw material cost' },
+          { id: 'USD_INR_FX', label: 'RELATED_TO', type: 'Macro', confidence: 0.79, impact: 'NEGATIVE', note: 'Indian import bill expands with crude rally' }
+        ]
+      },
+      'RBI_REPO_RATE': {
+        id: 'RBI_REPO_RATE',
+        title: 'RBI Monetary Policy Rate',
+        type: 'Macro',
+        sector: 'Monetary Policy',
+        exchange: 'RBI',
+        avatar: 'RBI',
+        color: '#A855F7',
+        edges: [
+          { id: 'HDFCBANK', label: 'SENSITIVE_TO_MACRO', type: 'Stock', confidence: 0.95, impact: 'MIXED', note: 'Floating rate book resets immediately' },
+          { id: 'TATASTEEL', label: 'SENSITIVE_TO_MACRO', type: 'Stock', confidence: 0.72, impact: 'NEGATIVE', note: 'Capex discount rate adjustment' }
+        ]
+      }
+    };
+
+    let activeEntity = GRAPH_ENTITIES['TATASTEEL'];
+    let graphMode = 'constellation'; // 'constellation' | 'cluster' | 'linear'
+
+    // --- Canvas Particle Constellation Engine ---
+    const canvas = document.getElementById('graphCanvas');
+    const ctx = canvas.getContext('2d');
+    let width, height;
+    let particles = [];
+    const PARTICLE_COUNT = 90;
+
+    function resizeCanvas() {
+      const rect = canvas.parentElement.getBoundingClientRect();
+      width = canvas.width = rect.width;
+      height = canvas.height = rect.height;
+    }
+    window.addEventListener('resize', () => {
+      resizeCanvas();
+      initParticles();
+      renderTransformedCards();
+    });
+
+    class Particle {
+      constructor() {
+        this.reset();
+      }
+      reset() {
+        this.x = Math.random() * width;
+        this.y = Math.random() * height;
+        this.vx = (Math.random() - 0.5) * 0.4;
+        this.vy = (Math.random() - 0.5) * 0.4;
+        this.radius = Math.random() * 2.2 + 0.8;
+        this.baseAlpha = Math.random() * 0.6 + 0.2;
+        this.alpha = this.baseAlpha;
+      }
+      update() {
+        this.x += this.vx;
+        this.y += this.vy;
+        if (this.x < 0 || this.x > width) this.vx *= -1;
+        if (this.y < 0 || this.y > height) this.vy *= -1;
+      }
+      draw() {
+        ctx.beginPath();
+        ctx.arc(this.x, this.y, this.radius, 0, Math.PI * 2);
+        ctx.fillStyle = `rgba(255, 255, 255, ${this.alpha})`;
+        ctx.fill();
+      }
+    }
+
+    function initParticles() {
+      particles = [];
+      for (let i = 0; i < PARTICLE_COUNT; i++) {
+        particles.push(new Particle());
+      }
+    }
+
+    let animFrame;
+    function renderConstellation() {
+      ctx.clearRect(0, 0, width, height);
+
+      // Background subtle grid lines
+      ctx.strokeStyle = 'rgba(255, 255, 255, 0.02)';
+      ctx.lineWidth = 1;
+      for (let x = 0; x < width; x += 40) {
+        ctx.beginPath(); ctx.moveTo(x, 0); ctx.lineTo(x, height); ctx.stroke();
+      }
+      for (let y = 0; y < height; y += 40) {
+        ctx.beginPath(); ctx.moveTo(0, y); ctx.lineTo(width, y); ctx.stroke();
+      }
+
+      // Draw faint connections between nearby micro-particles
+      for (let i = 0; i < particles.length; i++) {
+        particles[i].update();
+        particles[i].draw();
+        for (let j = i + 1; j < particles.length; j++) {
+          const dx = particles[i].x - particles[j].x;
+          const dy = particles[i].y - particles[j].y;
+          const dist = Math.sqrt(dx * dx + dy * dy);
+          if (dist < 85) {
+            ctx.beginPath();
+            ctx.moveTo(particles[i].x, particles[i].y);
+            ctx.lineTo(particles[j].x, particles[j].y);
+            ctx.strokeStyle = `rgba(255, 255, 255, ${0.12 * (1 - dist / 85)})`;
+            ctx.lineWidth = 0.6;
+            ctx.stroke();
+          }
+        }
+      }
+
+      // Draw active center node and blossomed edges
+      const cx = width / 2;
+      const cy = height / 2 + 10;
+
+      // Center Node Pulsing Aura
+      const time = Date.now() * 0.003;
+      const pulseRadius = 38 + Math.sin(time) * 4;
+      ctx.beginPath();
+      ctx.arc(cx, cy, pulseRadius, 0, Math.PI * 2);
+      ctx.fillStyle = 'rgba(56, 189, 248, 0.08)';
+      ctx.fill();
+      ctx.strokeStyle = 'rgba(56, 189, 248, 0.4)';
+      ctx.lineWidth = 1.5;
+      ctx.stroke();
+
+      // Center Node Solid Core
+      ctx.beginPath();
+      ctx.arc(cx, cy, 14, 0, Math.PI * 2);
+      ctx.fillStyle = '#38BDF8';
+      ctx.shadowColor = '#38BDF8';
+      ctx.shadowBlur = 15;
+      ctx.fill();
+      ctx.shadowBlur = 0;
+
+      // Draw Blossom Edges to Connected Nodes
+      if (activeEntity && activeEntity.edges) {
+        const edgeCount = activeEntity.edges.length;
+        activeEntity.edges.forEach((edge, index) => {
+          let targetX, targetY;
+          if (graphMode === 'constellation' || graphMode === 'cluster') {
+            const angle = (index / edgeCount) * Math.PI * 2 - Math.PI / 2;
+            const distance = Math.min(width, height) * 0.32;
+            targetX = cx + Math.cos(angle) * distance;
+            targetY = cy + Math.sin(angle) * distance;
+          } else {
+            // Linear mode
+            const spacing = width / (edgeCount + 1);
+            targetX = spacing * (index + 1);
+            targetY = cy + 120;
+          }
+
+          // Draw Glowing Edge Line
+          ctx.beginPath();
+          ctx.moveTo(cx, cy);
+          ctx.lineTo(targetX, targetY);
+          let edgeColor = 'rgba(56, 189, 248, 0.5)';
+          if (edge.impact === 'NEGATIVE') edgeColor = 'rgba(239, 68, 68, 0.5)';
+          if (edge.impact === 'POSITIVE') edgeColor = 'rgba(16, 185, 129, 0.5)';
+          ctx.strokeStyle = edgeColor;
+          ctx.lineWidth = 2;
+          ctx.setLineDash([4, 4]);
+          ctx.stroke();
+          ctx.setLineDash([]);
+
+          // Edge Relationship Label pill
+          const midX = (cx + targetX) / 2;
+          const midY = (cy + targetY) / 2;
+          ctx.font = '9px JetBrains Mono';
+          ctx.fillStyle = 'rgba(15, 23, 42, 0.85)';
+          ctx.fillRect(midX - 35, midY - 8, 70, 16);
+          ctx.strokeStyle = 'rgba(255, 255, 255, 0.15)';
+          ctx.strokeRect(midX - 35, midY - 8, 70, 16);
+          ctx.fillStyle = '#E2E8F0';
+          ctx.textAlign = 'center';
+          ctx.textBaseline = 'middle';
+          ctx.fillText(`[:${edge.label.substring(0, 10)}]`, midX, midY);
+        });
+      }
+
+      animFrame = requestAnimationFrame(renderConstellation);
+    }
+
+    // --- Render Transformed Cards (Overlaying target nodes, matching image.png) ---
+    function renderTransformedCards() {
+      const container = document.getElementById('graphCardOverlay');
+      container.innerHTML = '';
+      if (!activeEntity || !activeEntity.edges) return;
+
+      const cx = width / 2;
+      const cy = height / 2 + 10;
+      const edgeCount = activeEntity.edges.length;
+
+      activeEntity.edges.forEach((edge, index) => {
+        let targetX, targetY;
+        if (graphMode === 'constellation' || graphMode === 'cluster') {
+          const angle = (index / edgeCount) * Math.PI * 2 - Math.PI / 2;
+          const distance = Math.min(width, height) * 0.32;
+          targetX = cx + Math.cos(angle) * distance;
+          targetY = cy + Math.sin(angle) * distance;
+        } else {
+          const spacing = width / (edgeCount + 1);
+          targetX = spacing * (index + 1);
+          targetY = cy + 120;
+        }
+
+        const card = document.createElement('div');
+        card.className = 'absolute pointer-events-auto cursor-pointer transition transform hover:scale-105 active:scale-95';
+        card.style.left = `${targetX - 90}px`;
+        card.style.top = `${targetY - 45}px`;
+
+        let haloClass = 'border-sky-500/30';
+        let badgeColor = 'text-sky-300 bg-sky-500/10 border-sky-500/30';
+        if (edge.impact === 'NEGATIVE') {
+          haloClass = 'border-rose-500/40 hover:border-rose-400';
+          badgeColor = 'text-rose-400 bg-rose-500/10 border-rose-500/20';
+        } else if (edge.impact === 'POSITIVE') {
+          haloClass = 'border-emerald-500/40 hover:border-emerald-400';
+          badgeColor = 'text-emerald-400 bg-emerald-500/10 border-emerald-500/20';
+        }
+
+        card.innerHTML = `
+          <div onclick="openDetailedViewModal()" class="glass-panel w-48 rounded-xl p-2.5 border ${haloClass} shadow-xl backdrop-blur-md">
+            <div class="flex items-center justify-between gap-1 mb-1">
+              <span class="text-[9px] font-mono px-1.5 py-0.2 rounded border ${badgeColor}">${edge.type}</span>
+              <span class="text-[9px] font-mono text-slate-400">${Math.round(edge.confidence * 100)}% Conf</span>
+            </div>
+            <div class="font-bold text-xs text-white truncate">${edge.id}</div>
+            <div class="text-[10px] text-slate-400 line-clamp-2 mt-0.5 leading-tight">${edge.note}</div>
+          </div>
+        `;
+        container.appendChild(card);
+      });
+    }
+
+    // --- Entity Selection & Switching ---
+    function selectEntity(id) {
+      if (!GRAPH_ENTITIES[id]) return;
+      activeEntity = GRAPH_ENTITIES[id];
+      
+      // Update Search Bar
+      document.getElementById('graphSearchInput').value = activeEntity.id;
+      document.getElementById('nodeTypeBadge').innerText = activeEntity.type;
+
+      // Update Bottom Bar
+      document.getElementById('activeNodeTitle').innerText = activeEntity.title;
+      document.getElementById('activeNodeSubtitle').innerText = `${activeEntity.exchange}: ${activeEntity.id}`;
+      document.getElementById('activeNodeAvatar').innerText = activeEntity.avatar;
+      document.getElementById('activeNodeMeta').innerHTML = `
+        <span>${activeEntity.edges.length} Connected Edges</span>
+        <span>•</span>
+        <span class="text-sky-400">${activeEntity.sector}</span>
+      `;
+
+      // Update Modal Pills
+      document.getElementById('modalPill1').innerText = activeEntity.id;
+      document.getElementById('modalPill2').innerText = activeEntity.sector;
+
+      renderTransformedCards();
+    }
+
+    function scrollToGraph(entityId) {
+      document.getElementById('interactive-graph').scrollIntoView({ behavior: 'smooth' });
+      selectEntity(entityId);
+    }
+
+    function handleSearchInput(val) {
+      const query = val.trim().toUpperCase();
+      if (GRAPH_ENTITIES[query]) {
+        selectEntity(query);
+      }
+    }
+
+    function clearSearch() {
+      document.getElementById('graphSearchInput').value = '';
+    }
+
+    function switchGraphMode(mode) {
+      graphMode = mode;
+      document.getElementById('viewConstellationBtn').className = mode === 'constellation' ? 'px-3 py-1.5 rounded-lg bg-sky-500/20 text-sky-300 border border-sky-500/30 font-medium' : 'px-3 py-1.5 rounded-lg hover:bg-white/5 text-slate-400';
+      document.getElementById('viewClusterBtn').className = mode === 'cluster' ? 'px-3 py-1.5 rounded-lg bg-sky-500/20 text-sky-300 border border-sky-500/30 font-medium' : 'px-3 py-1.5 rounded-lg hover:bg-white/5 text-slate-400';
+      document.getElementById('viewLinearBtn').className = mode === 'linear' ? 'px-3 py-1.5 rounded-lg bg-sky-500/20 text-sky-300 border border-sky-500/30 font-medium' : 'px-3 py-1.5 rounded-lg hover:bg-white/5 text-slate-400';
+      renderTransformedCards();
+    }
+
+    // --- Modal Controls (Matching detailed view.png) ---
+    function openDetailedViewModal() {
+      const modal = document.getElementById('detailedViewModal');
+      const box = document.getElementById('detailedModalBox');
+      modal.classList.remove('opacity-0', 'pointer-events-none');
+      box.classList.remove('scale-95');
+      box.classList.add('scale-100');
+    }
+
+    function closeDetailedViewModal() {
+      const modal = document.getElementById('detailedViewModal');
+      const box = document.getElementById('detailedModalBox');
+      modal.classList.add('opacity-0', 'pointer-events-none');
+      box.classList.remove('scale-100');
+      box.classList.add('scale-95');
+    }
+
+    // --- Command Palette (⌘K) ---
+    function openCommandPalette() {
+      const p = document.getElementById('cmdPalette');
+      p.classList.remove('opacity-0', 'pointer-events-none');
+      document.getElementById('cmdInput').focus();
+    }
+
+    function closeCommandPalette() {
+      const p = document.getElementById('cmdPalette');
+      p.classList.add('opacity-0', 'pointer-events-none');
+    }
+
+    window.addEventListener('keydown', (e) => {
+      if ((e.metaKey || e.ctrlKey) && e.key === 'k') {
+        e.preventDefault();
+        openCommandPalette();
+      }
+      if (e.key === 'Escape') {
+        closeCommandPalette();
+        closeDetailedViewModal();
+      }
+    });
+
+    document.getElementById('cmdPalette').addEventListener('click', closeCommandPalette);
+
+    function paletteSelect(ticker) {
+      closeCommandPalette();
+      selectEntity(ticker);
+      document.getElementById('interactive-graph').scrollIntoView({ behavior: 'smooth' });
+    }
+
+    function paletteJumpSection(hash) {
+      closeCommandPalette();
+      document.querySelector(hash).scrollIntoView({ behavior: 'smooth' });
+    }
+
+    function filterPalette(val) {
+      const filter = val.toLowerCase();
+      const buttons = document.getElementById('cmdResults').getElementsByTagName('button');
+      for (let btn of buttons) {
+        btn.style.display = btn.innerText.toLowerCase().includes(filter) ? 'flex' : 'none';
+      }
+    }
+
+    // --- API Code Tab Switcher ---
+    const API_SNIPPETS = {
+      curl: `curl -X GET "http://localhost:8000/api/v1/stocks/TATASTEEL/context?window=LAST_6M&limit=50" \\
+     -H "Accept: application/json"`,
+      
+      mcp: `{
+  "name": "get_stock_dossier",
+  "arguments": {
+    "ticker": "TATASTEEL",
+    "window": "LAST_6M"
+  }
+}
+// Returns FalkorDB multi-hop news + TimescaleDB delivery z-scores directly into Claude / Cursor`,
+
+      python: `import httpx
+
+async def fetch_stock_context(ticker: str):
+    async with httpx.AsyncClient(base_url="http://localhost:8000") as client:
+        resp = await client.get(
+            f"/api/v1/stocks/{ticker}/context",
+            params={"window": "LAST_6M", "limit": 50}
+        )
+        resp.raise_for_status()
+        return resp.json()
+
+dossier = await fetch_stock_context("TATASTEEL")
+print(f"Direct News Count: {len(dossier['direct_news'])}")
+print(f"Active Graph Nodes: {len(dossier['nodes'])}")`,
+
+      response: `{
+  "ticker": "TATASTEEL",
+  "window": "LAST_6M",
+  "start_ts": 1729728000,
+  "end_ts": 1761234567,
+  "processing_status": "completed",
+  "nodes": [
+    {"id": "Stock:TATASTEEL", "kind": "Stock", "properties": {"name": "Tata Steel Limited"}},
+    {"id": "Commodity:COKING_COAL", "kind": "Commodity", "properties": {"name": "Hard Coking Coal"}},
+    {"id": "MacroFactor:RBI_REPO_RATE", "kind": "MacroFactor", "properties": {"stance": "HAWKISH"}}
+  ],
+  "edges": [
+    {
+      "id": "TATASTEEL:EXPOSED_TO:COKING_COAL",
+      "source": "Stock:TATASTEEL",
+      "target": "Commodity:COKING_COAL",
+      "relation": "EXPOSED_TO",
+      "confidence": 0.88,
+      "properties": {"margin_impact": "NEGATIVE"},
+      "rationale": "High dependence on imported metallurgical coal for blast furnace."
+    }
+  ],
+  "direct_news": [
+    {
+      "id": "reg30-kalinganagar-expansion",
+      "headline": "Tata Steel commissions 5 MTPA Kalinganagar Blast Furnace",
+      "citation": {
+        "url": "https://nseindia.com/corporate/reg30/kalinganagar.pdf",
+        "publisher": "NSE",
+        "event_date": "2026-10-22"
+      },
+      "impact_type": "DIRECTLY_IMPACTS",
+      "confidence": 0.94
+    }
+  ]
+}`
+    };
+
+    function switchApiTab(tab) {
+      document.getElementById('codeSnippetBox').innerText = API_SNIPPETS[tab];
+      document.getElementById('tabCurlBtn').className = tab === 'curl' ? 'px-3 py-1.5 rounded-lg bg-sky-500/20 text-sky-300 font-semibold border border-sky-500/30' : 'px-3 py-1.5 rounded-lg text-slate-400 hover:text-white';
+      document.getElementById('tabMcpBtn').className = tab === 'mcp' ? 'px-3 py-1.5 rounded-lg bg-sky-500/20 text-sky-300 font-semibold border border-sky-500/30' : 'px-3 py-1.5 rounded-lg text-slate-400 hover:text-white';
+      document.getElementById('tabPythonBtn').className = tab === 'python' ? 'px-3 py-1.5 rounded-lg bg-sky-500/20 text-sky-300 font-semibold border border-sky-500/30' : 'px-3 py-1.5 rounded-lg text-slate-400 hover:text-white';
+      document.getElementById('tabResponseBtn').className = tab === 'response' ? 'px-3 py-1.5 rounded-lg bg-sky-500/20 text-sky-300 font-semibold border border-sky-500/30' : 'px-3 py-1.5 rounded-lg text-slate-400 hover:text-white';
+      
+      const titles = {
+        curl: 'curl — GET /api/v1/stocks/{ticker}/context',
+        mcp: 'Model Context Protocol (MCP) — get_stock_dossier',
+        python: 'Python 3.12 (httpx) — Asynchronous Context Fetch',
+        response: 'StockDossierResponse JSON (Strict Dual-Store Contract)'
+      };
+      document.getElementById('apiTabTitle').innerText = titles[tab];
+    }
+
+    function copyCodeSnippet() {
+      const code = document.getElementById('codeSnippetBox').innerText;
+      navigator.clipboard.writeText(code);
+      const fb = document.getElementById('copyFeedback');
+      fb.innerText = 'Copied! ✓';
+      setTimeout(() => fb.innerText = 'Copy Snippet', 2000);
+    }
+
+    // --- Theme Toggle ---
+    let isLight = false;
+    function toggleTheme() {
+      isLight = !isLight;
+      if (isLight) {
+        document.documentElement.classList.add('light');
+        document.body.classList.remove('bg-[#090D16]', 'text-slate-100');
+        document.body.classList.add('bg-[#F8FAFC]', 'text-slate-900');
+        document.getElementById('themeIcon').innerText = '🌙 Dark Mode';
+      } else {
+        document.documentElement.classList.remove('light');
+        document.body.classList.remove('bg-[#F8FAFC]', 'text-slate-900');
+        document.body.classList.add('bg-[#090D16]', 'text-slate-100');
+        document.getElementById('themeIcon').innerText = '☀️ Light Mode';
+      }
+    }
+
+    // --- Init on Load ---
+    window.onload = () => {
+      resizeCanvas();
+      initParticles();
+      renderConstellation();
+      selectEntity('TATASTEEL');
+    };
+  </script>
+</body>
+</html>
