@@ -36,7 +36,8 @@ def test_registration_api_returns_accepted_without_fetching():
 
 
 def test_data_service_exposes_stock_and_market_read_routes():
-    paths = create_app(AsyncMock(), AsyncMock()).openapi()["paths"]
+    openapi = create_app(AsyncMock(), AsyncMock()).openapi()
+    paths = openapi["paths"]
     assert {
         "/api/v1/stocks/{ticker}",
         "/api/v1/stocks/{ticker}/shareholding",
@@ -48,6 +49,10 @@ def test_data_service_exposes_stock_and_market_read_routes():
         "/api/v1/market/change-oi",
         "/api/v1/market/max-pain",
     } <= paths.keys()
+    company_profile = openapi["components"]["schemas"]["CompanyProfile"]
+    assert company_profile["properties"]["prospectus_links"]["items"]["$ref"].endswith(
+        "/ProspectusLink"
+    )
 
 
 def test_job_status_includes_graph_failures():
@@ -203,6 +208,26 @@ async def test_upstox_resolves_official_identity_and_fetches_profile():
                     },
                 },
             )
+        if request.url.path == "/v2/ipos":
+            return httpx.Response(
+                200,
+                json={
+                    "status": "success",
+                    "data": [{"id": "tcs-ipo", "isin": "INE467B01029"}],
+                },
+            )
+        if request.url.path.endswith("/ipos/tcs-ipo"):
+            return httpx.Response(
+                200,
+                json={
+                    "status": "success",
+                    "data": {
+                        "isin": "INE467B01029",
+                        "drhp_url": "https://example.test/tcs-drhp.pdf",
+                        "rhp_url": "https://example.test/tcs-rhp.pdf",
+                    },
+                },
+            )
         return httpx.Response(200, json={"status": "success", "data": {"candles": []}})
 
     client = UpstoxClient(SecretStr("a-secret-token"), transport=httpx.MockTransport(handler))
@@ -216,9 +241,13 @@ async def test_upstox_resolves_official_identity_and_fetches_profile():
         await client.close()
     assert bundle.entity["ticker"] == "TCS"
     assert bundle.entity["strengths"] == ["consulting"]
+    assert bundle.entity["prospectus_links"] == [
+        {"document_type": "DRHP", "url": "https://example.test/tcs-drhp.pdf"},
+        {"document_type": "RHP", "url": "https://example.test/tcs-rhp.pdf"},
+    ]
     assert "sector_market_cap_inr" not in bundle.entity
     assert bundle.raw["profile"]["data"]["sector_market_cap_inr"]["value"] == 123
-    assert len(seen) == 6
+    assert len(seen) == 8
     assert seen[0].url.params["segments"] == "EQ"
 
 

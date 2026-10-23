@@ -70,6 +70,7 @@ def merge_company_profile(existing: dict, incoming: dict) -> dict:
         "revenue_segments",
         "raw_material_inputs",
         "geographic_exposure",
+        "prospectus_links",
         "strengths",
         "business_exclusions",
     ):

@@ -38,6 +38,7 @@ ENTITY_FIELDS = {
     "latest_guidance_highlights",
     "source",
     "source_url",
+    "prospectus_links",
     "vendor_id",
     "vendor_as_of",
 }

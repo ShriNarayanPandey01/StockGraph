@@ -134,6 +134,13 @@ GET http://localhost:8000/api/v1/stocks/RELIANCE/context?window=LAST_1Y&limit=50
     {
       "id": "news-sha1-id",
       "headline": "Example company announcement",
+      "source_url": "https://exchange.example/filings/example-announcement",
+      "citation": {
+        "url": "https://exchange.example/filings/example-announcement",
+        "title": "Example company announcement",
+        "publisher": "NSE",
+        "event_date": "2026-10-22"
+      },
       "impact_type": "DIRECTLY_IMPACTS",
       "confidence": 0.91,
       "rationale": "The announcement names the company."
@@ -159,9 +166,11 @@ GET http://localhost:8000/api/v1/stocks/RELIANCE/context?window=LAST_1Y&limit=50
 
 `nodes` always use `{id, kind, properties}`. `edges` provide `{id, source,
 target, relation}`, optional confidence/rationale, provenance, and relation
-properties. `direct_news` and `indirect_news` are intentionally flexible
-graph-ready objects; consumers should use the included provenance/explanation
-fields rather than assume a fixed provider payload shape.
+properties. Every `direct_news` and `indirect_news` card has a `citation`
+object when its provider supplied an article URL: `{url, title, publisher,
+event_date}`. `citation.url` is the canonical main-source article link; it is
+present only when the upstream source supplied a URL. Otherwise, `citation`
+is `null`. The original `source_url` is retained for compatibility.
 
 To fetch another page, send the returned `next_offset` and preserve
 `as_of_ts`:
@@ -448,6 +457,31 @@ Daily candle response shape:
 Shareholding responses return `exchange`, `ticker`, `isin`, `vendor_id`,
 `vendor_as_of`, and `periods`. Each period contains `period`, optional
 `promoters`, `fii`, `dii`, `public`, and a `breakdown` object.
+
+Company-profile responses (`GET /api/v1/stocks/{ticker}`) include
+`profile.prospectus_links`, an array of `{document_type, url}` objects. The
+Data Service obtains these only from a matching Upstox IPO detail record:
+`document_type` is `DRHP` (Draft Red Herring Prospectus) or `RHP` (Red Herring
+Prospectus). The array is empty when Upstox has no matching IPO document; the
+service never manufactures a filing URL.
+
+```json
+{
+  "exchange": "NSE",
+  "trading_symbol": "EXAMPLEIPO",
+  "isin": "INE123A01010",
+  "profile": {
+    "business_summary": "Example company profile.",
+    "sector": "Industrials",
+    "prospectus_links": [
+      {"document_type": "DRHP", "url": "https://issuer.example/drhp.pdf"},
+      {"document_type": "RHP", "url": "https://issuer.example/rhp.pdf"}
+    ]
+  },
+  "vendor_id": "UPSTOX",
+  "vendor_as_of": "2026-10-23T09:00:00+00:00"
+}
+```
 
 ### On-demand market data
 

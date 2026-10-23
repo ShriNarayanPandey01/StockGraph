@@ -306,7 +306,13 @@ def test_worker_acknowledges_only_success_and_recovers_failed_event(monkeypatch)
 
 def test_context_contains_commodity_macro_and_indirect_path_with_pagination():
     repo = Repo()
-    news = {"id": "oil-1", "headline": "Oil supply cut", "source_url": "https://example.com"}
+    news = {
+        "id": "oil-1",
+        "headline": "Oil supply cut",
+        "source": "Exchange filing",
+        "source_url": "https://example.com/oil-supply-cut",
+        "event_date": "2026-10-22",
+    }
     confidence = {"confidence": 0.9, "rationale": "Input", "valid_from_ts": 0, "inferred_by": "LLM"}
     macro = {
         "confidence": 1.0,
@@ -319,7 +325,7 @@ def test_context_contains_commodity_macro_and_indirect_path_with_pagination():
             ("Commodity", {"id": "BRENT_CRUDE"}, "EXPOSED_TO", confidence),
             ("MacroFactor", {"id": "USD_INR_FX"}, "SENSITIVE_TO_MACRO", macro),
         ],
-        "direct": [],
+        "direct": [(news, "DIRECTLY_IMPACTS", confidence)],
         "indirect": [
             (
                 news,
@@ -334,9 +340,16 @@ def test_context_contains_commodity_macro_and_indirect_path_with_pagination():
     }
     result = GraphContextService(repo).get_context("stock0", Window.LAST_1Y, limit=1)
     assert {node.kind for node in result.nodes} == {"Stock", "Commodity", "NewsEvent"}
-    assert {edge.relation for edge in result.edges} == {"EXPOSED_TO", "SHOCKS"}
+    assert {edge.relation for edge in result.edges} == {
+        "DIRECTLY_IMPACTS",
+        "EXPOSED_TO",
+        "SHOCKS",
+    }
     assert result.pagination["next_offset"] == 1
-    assert result.indirect_news[0]["via_node"] == "Commodity:BRENT_CRUDE"
+    assert result.direct_news[0].citation.url == "https://example.com/oil-supply-cut"
+    assert result.direct_news[0].citation.publisher == "Exchange filing"
+    assert result.indirect_news[0].via_node == "Commodity:BRENT_CRUDE"
+    assert result.indirect_news[0].citation.title == "Oil supply cut"
     result = GraphContextService(repo).get_context("stock0", Window.LAST_1Y, limit=2)
     assert any(node.kind == "MacroFactor" for node in result.nodes)
 

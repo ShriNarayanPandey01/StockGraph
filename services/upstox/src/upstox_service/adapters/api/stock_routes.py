@@ -34,11 +34,22 @@ class StockListResponse(BaseModel):
     next_cursor: str | None = None
 
 
+class ProspectusLink(BaseModel):
+    document_type: Literal["DRHP", "RHP"] = Field(
+        description="Draft Red Herring Prospectus or Red Herring Prospectus."
+    )
+    url: str = Field(description="Original document URL supplied by Upstox.")
+
+
 class CompanyProfile(BaseModel):
     business_summary: str
     sector: str | None = None
     sector_market_cap_inr: dict | None = None
     sector_market_cap_usd: dict | None = None
+    prospectus_links: list[ProspectusLink] = Field(
+        default_factory=list,
+        description="DRHP/RHP URLs returned by Upstox for a matching current or recent IPO.",
+    )
 
 
 class StockDetail(StockSummary):

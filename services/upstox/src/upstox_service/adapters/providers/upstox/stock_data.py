@@ -81,6 +81,7 @@ class UpstoxStockDataProvider:
             "sector": data.get("sector"),
             "sector_market_cap_inr": data.get("sector_market_cap_inr"),
             "sector_market_cap_usd": data.get("sector_market_cap_usd"),
+            "prospectus_links": await self._company.fetch_prospectus_links(isin),
         }
 
     async def fetch_shareholding(self, isin: str) -> list[dict]:

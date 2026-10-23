@@ -80,6 +80,10 @@ async def test_provider_normalizes_shareholding_and_v3_daily_candles():
     v3 = AsyncMock()
     v2.get.side_effect = [
         {"data": {"company_profile": "Energy and retail", "sector": "Refineries"}},
+        {"data": []},
+        {"data": []},
+        {"data": []},
+        {"data": []},
         {"data": [
             {"category": "promoters", "history": [{"period": "Mar 2026", "value": 50.0}]},
             {"category": "fii", "history": [{"period": "Mar 2026", "value": 18.67}]},
@@ -105,7 +109,7 @@ async def test_provider_normalizes_shareholding_and_v3_daily_candles():
     ]
     assert candles[0]["volume"] == 12345
     assert candles[0]["trade_date"] == date(2026, 10, 21)
-    assert v2.get.await_args_list[1].args[0].endswith("/share-holdings")
+    assert v2.get.await_args_list[5].args[0].endswith("/share-holdings")
     assert v3.get.await_args.args[0] == (
         "/historical-candle/NSE_EQ%7CINE002A01018/days/1/2026-10-22/2026-10-01"
     )
