@@ -35,6 +35,26 @@ def test_registration_api_returns_accepted_without_fetching():
     repo.commit_company.assert_not_called()
 
 
+def test_data_service_exposes_stock_and_market_read_routes():
+    openapi = create_app(AsyncMock(), AsyncMock()).openapi()
+    paths = openapi["paths"]
+    assert {
+        "/api/v1/stocks/{ticker}",
+        "/api/v1/stocks/{ticker}/shareholding",
+        "/api/v1/stocks/{ticker}/candles",
+        "/api/v1/option-chains",
+        "/api/v1/market/institutional-flows",
+        "/api/v1/market/pcr",
+        "/api/v1/market/oi",
+        "/api/v1/market/change-oi",
+        "/api/v1/market/max-pain",
+    } <= paths.keys()
+    company_profile = openapi["components"]["schemas"]["CompanyProfile"]
+    assert company_profile["properties"]["prospectus_links"]["items"]["$ref"].endswith(
+        "/ProspectusLink"
+    )
+
+
 def test_job_status_includes_graph_failures():
     job_id = str(uuid4())
     repo = AsyncMock()
@@ -70,6 +90,48 @@ def test_entity_api_rejects_unresolved_stock_and_numeric_macros():
         )
 
 
+def test_manual_news_is_staged_then_enqueued_for_graph_inference():
+    repo = AsyncMock()
+    repo.get_entity.return_value = {"ticker": "TCS"}
+    repo.commit_news.return_value = 1
+    with TestClient(create_app(repo, AsyncMock())) as client:
+        response = client.post(
+            "/api/v1/manual/news",
+            json={
+                "headline": "Copper prices rise on supply disruption",
+                "summary": "Industrial metals markets tightened.",
+                "source_url": "https://example.test/copper-rise",
+                "published_at": "2026-10-23T09:00:00+00:00",
+                "category": "COMMODITY",
+                "tickers": ["tcs"],
+                "ticker_sentiment": {"TCS": 0.2},
+            },
+        )
+    assert response.status_code == 202
+    assert response.json()["state"] == "queued"
+    result = repo.commit_news.await_args.args[0]
+    assert result.provider_id == "MANUAL"
+    assert result.articles[0].tickers == ("TCS",)
+    assert result.approvals[result.articles[0].external_id][0] == "RULES"
+
+
+def test_manual_news_rejects_unknown_or_unpaired_ticker_sentiment():
+    repo = AsyncMock()
+    repo.get_entity.return_value = None
+    with TestClient(create_app(repo, AsyncMock())) as client:
+        response = client.post(
+            "/api/v1/manual/news",
+            json={
+                "headline": "Copper prices rise",
+                "source_url": "https://example.test/copper-rise",
+                "published_at": "2026-10-23T09:00:00+00:00",
+                "category": "COMMODITY",
+                "tickers": ["UNKNOWN"],
+            },
+        )
+    assert response.status_code == 422
+
+
 def test_data_service_has_no_graph_or_llm_configuration():
     fields = Settings.model_fields
     assert not any("falkor" in name or "llm" in name for name in fields)
@@ -86,7 +148,10 @@ def test_hourly_news_job_is_cron_minute_zero():
         "coalesce": True,
         "max_instances": 1,
     }
-    assert {j.id for j in scheduler.get_jobs()} == {"hourly_news", "daily_open", "daily_close"}
+    assert {j.id for j in scheduler.get_jobs()} == {
+        "hourly_news", "daily_equity_universe", "daily_open", "daily_close"
+    }
+    assert str(scheduler.get_job("daily_equity_universe").trigger) == "cron[hour='6', minute='0']"
 
 
 def test_resolver_uses_sql_catalog_new_stocks():
@@ -143,6 +208,26 @@ async def test_upstox_resolves_official_identity_and_fetches_profile():
                     },
                 },
             )
+        if request.url.path == "/v2/ipos":
+            return httpx.Response(
+                200,
+                json={
+                    "status": "success",
+                    "data": [{"id": "tcs-ipo", "isin": "INE467B01029"}],
+                },
+            )
+        if request.url.path.endswith("/ipos/tcs-ipo"):
+            return httpx.Response(
+                200,
+                json={
+                    "status": "success",
+                    "data": {
+                        "isin": "INE467B01029",
+                        "drhp_url": "https://example.test/tcs-drhp.pdf",
+                        "rhp_url": "https://example.test/tcs-rhp.pdf",
+                    },
+                },
+            )
         return httpx.Response(200, json={"status": "success", "data": {"candles": []}})
 
     client = UpstoxClient(SecretStr("a-secret-token"), transport=httpx.MockTransport(handler))
@@ -156,9 +241,13 @@ async def test_upstox_resolves_official_identity_and_fetches_profile():
         await client.close()
     assert bundle.entity["ticker"] == "TCS"
     assert bundle.entity["strengths"] == ["consulting"]
+    assert bundle.entity["prospectus_links"] == [
+        {"document_type": "DRHP", "url": "https://example.test/tcs-drhp.pdf"},
+        {"document_type": "RHP", "url": "https://example.test/tcs-rhp.pdf"},
+    ]
     assert "sector_market_cap_inr" not in bundle.entity
     assert bundle.raw["profile"]["data"]["sector_market_cap_inr"]["value"] == 123
-    assert len(seen) == 6
+    assert len(seen) == 8
     assert seen[0].url.params["segments"] == "EQ"
 
 

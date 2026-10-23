@@ -60,6 +60,7 @@ services:
       FALKOR_GRAPH_NAME: ${FALKOR_GRAPH_NAME:-stock_graph}
       REDIS_URL: redis://redis:6379/0
       DATA_SERVICE_URL: http://data-api:8001
+      DEVELOPER_GRAPH_MUTATIONS_ENABLED: ${DEVELOPER_GRAPH_MUTATIONS_ENABLED:-false}
       EVENT_STREAM: stockgraph:events:v1
       EVENT_CONSUMER_GROUP: graph-v1
       APP_TIMEZONE: Asia/Kolkata

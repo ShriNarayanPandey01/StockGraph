@@ -17,7 +17,7 @@ the sibling package or reads the sibling database.
 | Database | PostgreSQL/TimescaleDB | FalkorDB |
 | Source integrations | Upstox, existing news providers, exchange adapters | None |
 | Registry | Canonical SQL catalog and revision history | Committed catalog projection |
-| Financial information | Immutable raw payloads, statements, two daily checkpoints | Narrative context and source references only |
+| Financial information | Immutable raw payloads, statements, two daily checkpoints, daily OHLCV candles, quarterly shareholding, NSE/BSE equity universe | Narrative context and source references only |
 | Processing | Fetching, normalization, durable jobs/outbox | Embeddings, LLM relationships, deduplication, correlation |
 | Read API | Financial data | Graph nodes, edges and related news |
 
@@ -76,6 +76,24 @@ Data-service endpoints also include `GET /api/v1/entities`,
 Register stocks through the stock-registration endpoint, not free-text entity IDs.
 Inspect each service's `/docs` or `/openapi.json` for request/response schemas.
 
+The Data Service additionally exposes `GET /api/v1/stocks` (search with cursor
+pagination), `GET /api/v1/stocks/{ticker}` (company profile),
+`GET /api/v1/stocks/{ticker}/shareholding` (quarterly ownership revisions), and
+`GET /api/v1/stocks/{ticker}/candles` (stored daily OHLCV). Reading an
+unregistered equity may populate these SQL tables but does not register it or
+publish a graph event. A separate daily 06:00 IST job refreshes the NSE/BSE
+equity universe from Upstox's published instrument files.
+
+On-demand endpoints are `GET /api/v1/option-chains/expiries`,
+`GET /api/v1/option-chains`, `GET /api/v1/market/smartlists/{kind}` for MTF,
+options and futures, `GET /api/v1/market/institutional-flows` for FII/DII,
+`GET /api/v1/market/holidays`, `GET /api/v1/market/status/{exchange}`, and
+`GET /api/v1/market/{pcr|oi|change-oi|max-pain}`. Responses include source and
+fetch time (plus provider time when supplied). Redis caches live data briefly
+and dated results longer. These reads do not populate `daily_macro_and_flows`,
+FalkorDB or the graph outbox. See the Data Service `/docs` for validated query
+parameters, product/segment combinations and error schemas.
+
 The graph endpoint is:
 
 ```text
@@ -102,7 +120,8 @@ This is graph-ready JSON, not a frontend visualization.
 - Two daily price checkpoints remain: OPEN around 09:30 IST and CLOSE around
   19:00 IST. Official NSE Bhavcopy remains the primary delivery/turnover source;
   Upstox is not assumed to provide every requested financial/macro/delivery field.
-  No tick/minute storage, options, order execution, or trading engine is added.
+  Daily chart candles are stored separately; no tick/minute storage,
+  option-chain snapshots, order execution, or trading engine is added.
 - Bootstrap creates exactly five stocks, five commodities, seven macro factors,
   and twelve sectors only when the SQL registry is empty. Startup thereafter
   does not overwrite API-maintained data. Keep the packaged seed in sync with
@@ -185,6 +204,16 @@ uv run --package stockgraph-service stockgraph-worker
 Enable `LLM_ENABLED=true` and configure the chosen provider key for semantic
 processing. Keep it false for offline tests. APIs are development/internal APIs;
 add authentication and network controls before exposing them externally.
+
+The read-only Upstox provider smoke test checks the exchange universe, company
+profile, shareholding, daily candles, option contracts/chains, all three
+smartlists, FII/DII, holidays/status and PCR/OI/change-OI/max-pain without
+persisting data or creating graph events:
+
+```powershell
+$env:PYTHONPATH = "services/upstox/src"
+.venv/Scripts/python.exe scripts/verify_upstox_live.py
+```
 
 The graph MCP entrypoint is `uv run --package stockgraph-service --inexact stockgraph-mcp`
 (stdio transport). It exposes graph context, not a combined SQL dossier.

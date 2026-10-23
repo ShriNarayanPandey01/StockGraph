@@ -3,7 +3,13 @@
 import hashlib
 
 from stockgraph.adapters.repositories.falkor.repository import public_props
-from stockgraph.domain.context import GraphContextResponse, GraphEdge, GraphNode
+from stockgraph.domain.context import (
+    ContextNewsItem,
+    GraphContextResponse,
+    GraphEdge,
+    GraphNode,
+    NewsCitation,
+)
 from stockgraph.domain.enums import Window
 from stockgraph.domain.schemas import resolve_window
 
@@ -60,35 +66,52 @@ class GraphContextService:
                 properties=props,
             )
 
+        def citation(news: dict) -> NewsCitation | None:
+            source_url = news.get("source_url")
+            if not isinstance(source_url, str) or not source_url.strip():
+                return None
+            return NewsCitation(
+                url=source_url,
+                title=news.get("headline"),
+                publisher=news.get("source"),
+                event_date=news.get("event_date") or news.get("date"),
+            )
+
         stock_id = node("Stock", stock)
         for kind, target, relation, props in page["ontology"][:limit]:
             edge(stock_id, node(kind, target), relation, props)
         for news, relation, props in page["direct"][:limit]:
             edge(node("NewsEvent", news), stock_id, relation, props)
             direct.append(
-                {
-                    **public_props(news),
-                    "impact_type": relation,
-                    "confidence": props.get("confidence"),
-                    "rationale": props.get("causal_rationale") or props.get("rationale"),
-                    "sentiment": props.get("sentiment"),
-                }
+                ContextNewsItem(
+                    **{
+                        **public_props(news),
+                        "impact_type": relation,
+                        "confidence": props.get("confidence"),
+                        "rationale": props.get("causal_rationale") or props.get("rationale"),
+                        "sentiment": props.get("sentiment"),
+                        "citation": citation(news),
+                    }
+                )
             )
         for news, kind, target, exposure, exp_props, shock, shock_props in page["indirect"][:limit]:
             target_id = node(kind, target)
             edge(stock_id, target_id, exposure, exp_props)
             edge(node("NewsEvent", news), target_id, shock, shock_props)
             indirect.append(
-                {
-                    **public_props(news),
-                    "via_node": target_id,
-                    "exposure_type": exposure,
-                    "exposure_confidence": exp_props.get("confidence"),
-                    "exposure_rationale": exp_props.get("rationale"),
-                    "confidence": shock_props.get("confidence"),
-                    "rationale": shock_props.get("causal_rationale")
-                    or shock_props.get("rationale"),
-                }
+                ContextNewsItem(
+                    **{
+                        **public_props(news),
+                        "via_node": target_id,
+                        "exposure_type": exposure,
+                        "exposure_confidence": exp_props.get("confidence"),
+                        "exposure_rationale": exp_props.get("rationale"),
+                        "confidence": shock_props.get("confidence"),
+                        "rationale": shock_props.get("causal_rationale")
+                        or shock_props.get("rationale"),
+                        "citation": citation(news),
+                    }
+                )
             )
         more = {section: len(rows) > limit for section, rows in page.items()}
         return GraphContextResponse(

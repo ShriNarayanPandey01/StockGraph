@@ -21,5 +21,11 @@ class DataServiceClient:
     async def register_stock(self, payload: dict) -> dict:
         return await self.request("POST", "/api/v1/stocks", payload)
 
+    async def upsert_entity(self, kind: str, payload: dict) -> dict:
+        return await self.request("POST", f"/api/v1/entities/{kind}", payload)
+
+    async def submit_manual_news(self, payload: dict) -> dict:
+        return await self.request("POST", "/api/v1/manual/news", payload)
+
     async def job_status(self, job_id: str) -> dict:
         return await self.request("GET", f"/api/v1/jobs/{job_id}")
