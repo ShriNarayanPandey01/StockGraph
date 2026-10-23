@@ -9,10 +9,10 @@ export default {
     extend: {
       colors: {
         ink: {
-          0: '#0b0c0e', // deepest obsidian void (Jamie McKaye dark theme)
-          1: '#121316', // elevated dark surface
-          2: '#1a1c20', // border and card highlights
-          3: '#242830', // secondary surface
+          0: '#000000', // pure obsidian black (Jamie McKaye architectural theme)
+          1: '#09090b', // elevated dark surface (zinc-950)
+          2: '#121215', // border and card highlights
+          3: '#1c1c22', // secondary surface
         },
         brand: {
           sky: '#38bdf8',
@@ -23,7 +23,7 @@ export default {
         }
       },
       fontFamily: {
-        sans: ['"Plus Jakarta Sans"', '-apple-system', 'BlinkMacSystemFont', 'sans-serif'],
+        sans: ['"Inter"', '-apple-system', 'BlinkMacSystemFont', 'sans-serif'],
         mono: ['"JetBrains Mono"', 'ui-monospace', 'monospace'],
       },
       animation: {

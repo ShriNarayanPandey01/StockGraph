@@ -55,7 +55,7 @@ export const Header: React.FC<HeaderProps> = ({ onExploreClick }) => {
         <div className="flex items-center gap-3">
           <button
             onClick={onExploreClick}
-            className="bg-gradient-to-r from-sky-500 to-indigo-600 hover:from-sky-400 hover:to-indigo-500 text-white font-medium text-xs px-4 py-2 rounded-lg shadow-lg shadow-sky-500/20 transition active:scale-95 flex items-center gap-2"
+            className="bg-white hover:bg-slate-200 text-black font-semibold text-xs px-4 py-2 rounded-none transition active:scale-95 flex items-center gap-2 tracking-tight shadow-sm"
           >
             <span>Explore Graph</span>
             <ArrowRight className="w-3.5 h-3.5" />

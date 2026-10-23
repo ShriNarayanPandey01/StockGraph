@@ -3,15 +3,15 @@
 @tailwind utilities;
 
 :root {
-  --color-ink-0: #0b0c0e;
-  --color-ink-1: #121316;
-  --color-ink-2: #1a1c20;
+  --color-ink-0: #000000;
+  --color-ink-1: #09090b;
+  --color-ink-2: #141418;
 }
 
 body {
-  background-color: var(--color-ink-0);
+  background-color: #000000;
   color: #f1f5f9;
-  font-family: 'Plus Jakarta Sans', -apple-system, BlinkMacSystemFont, sans-serif;
+  font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
   overflow-x: hidden;
 }
 

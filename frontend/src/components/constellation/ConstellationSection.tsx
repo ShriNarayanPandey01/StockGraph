@@ -2,8 +2,6 @@ import React, { useState } from 'react';
 import { GraphEntity } from '../../types/graph';
 import { ConstellationCanvas } from './ConstellationCanvas';
 import { GraphSearchPill } from './GraphSearchPill';
-import { BottomDock } from './BottomDock';
-import { Sparkles, Maximize2 } from 'lucide-react';
 
 interface ConstellationSectionProps {
   entities: Record<string, GraphEntity>;
@@ -34,34 +32,21 @@ export const ConstellationSection: React.FC<ConstellationSectionProps> = ({
   };
 
   return (
-    <section id="interactive-graph" className="relative w-full h-screen min-h-[720px] overflow-hidden bg-[#07090e] border-y border-white/10 flex flex-col justify-between">
-      {/* Top Section Header */}
-      <div className="relative z-20 px-6 pt-6 flex flex-col sm:flex-row sm:items-center justify-between gap-4 pointer-events-none">
-        <div className="pointer-events-auto bg-ink-0/60 backdrop-blur-md p-3.5 rounded-2xl border border-white/10 max-w-md shadow-2xl">
-          <div className="flex items-center gap-2 text-xs font-mono text-sky-400 uppercase tracking-widest">
-            <Sparkles className="w-3.5 h-3.5 text-sky-400 animate-pulse" />
-            <span>Full-Screen Celestial Explorer</span>
-          </div>
-          <h2 className="text-xl sm:text-2xl font-extrabold text-white mt-0.5">
-            The StockGraph Constellation
-          </h2>
-          <p className="text-xs text-slate-400 mt-0.5 leading-snug">
-            {activeEntity
-              ? `Currently inspecting ${activeEntity.title}. Connected nodes blossom to input commodities, macro vectors, and filings.`
-              : 'Hover or click any star to blossom its multi-hop second-order transmission graph.'}
-          </p>
-        </div>
+    <section
+      id="interactive-graph"
+      className="relative w-full h-screen min-h-[760px] overflow-hidden bg-black flex flex-col justify-between border-b border-white/10"
+    >
+      {/* Central Tagline Only — No paragraphs, no buttons, no eyebrow text */}
+      <div className="absolute top-[44%] left-1/2 -translate-x-1/2 -translate-y-1/2 text-center pointer-events-none z-20 px-6 w-full max-w-4xl">
+        <h1 className="text-4xl sm:text-6xl lg:text-7xl font-bold tracking-tight text-white leading-[1.08] drop-shadow-[0_10px_35px_rgba(0,0,0,0.9)]">
+          The Stock Intelligence Engine That Connects The{' '}
+          <span className="bg-gradient-to-b from-white via-slate-200 to-slate-400 bg-clip-text text-transparent">
+            Invisible Dots.
+          </span>
+        </h1>
       </div>
 
-      {/* Floating Center Search Pill */}
-      <GraphSearchPill
-        searchQuery={searchQuery}
-        activeType={activeEntity?.type}
-        onSearchChange={handleSearchChange}
-        onClear={handleClearSearch}
-      />
-
-      {/* Interactive Full-Screen Canvas */}
+      {/* Interactive Canvas (Nodes Surrounding the Central Tagline) */}
       <ConstellationCanvas
         activeEntity={activeEntity}
         onSelectEntity={(id) => {
@@ -71,17 +56,13 @@ export const ConstellationSection: React.FC<ConstellationSectionProps> = ({
         onOpenDetailedView={onOpenDetailedView}
       />
 
-      {/* Bottom Floating Control Dock */}
-      <BottomDock
-        entity={activeEntity}
-        onOpenDetailedView={onOpenDetailedView}
+      {/* Floating Search Pill at the Bottom, Centered */}
+      <GraphSearchPill
+        searchQuery={searchQuery}
+        activeType={activeEntity?.type}
+        onSearchChange={handleSearchChange}
+        onClear={handleClearSearch}
       />
-
-      {/* Bottom-left helper hint */}
-      <div className="absolute bottom-3 left-6 text-[11px] font-mono text-slate-500 pointer-events-none hidden sm:flex items-center gap-2 z-20">
-        <Maximize2 className="w-3 h-3 text-sky-400" />
-        <span>Full-Screen Canvas • Hover any celestial node to explore • ⌘K to jump</span>
-      </div>
     </section>
   );
 };

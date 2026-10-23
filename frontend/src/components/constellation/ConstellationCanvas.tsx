@@ -400,15 +400,37 @@ export const ConstellationCanvas: React.FC<ConstellationCanvasProps> = ({
   const initNodes = (w: number, h: number) => {
     const nodes: DynamicNode[] = [];
 
-    // Thematic community cluster hubs distributed around the central search bar
+    // Thematic community cluster hubs distributed symmetrically around the central tagline
     const clusterCenters = [
-      { x: w * 0.22, y: h * 0.27 }, // 0: Metals (Top-Left)
-      { x: w * 0.78, y: h * 0.27 }, // 1: Energy & Petrochem (Top-Right)
-      { x: w * 0.20, y: h * 0.75 }, // 2: Banking & Rates (Bottom-Left)
-      { x: w * 0.80, y: h * 0.75 }, // 3: Infra & Auto (Bottom-Right)
-      { x: w * 0.50, y: h * 0.17 }, // 4: Tech & US Fed (Top-Center)
-      { x: w * 0.50, y: h * 0.83 }, // 5: Consumer & FMCG (Bottom-Center)
+      { x: w * 0.12, y: h * 0.22 }, // 0: Metals (Far Upper-Left)
+      { x: w * 0.88, y: h * 0.22 }, // 1: Energy & Petrochem (Far Upper-Right)
+      { x: w * 0.12, y: h * 0.72 }, // 2: Banking & Rates (Far Lower-Left)
+      { x: w * 0.88, y: h * 0.72 }, // 3: Infra & Auto (Far Lower-Right)
+      { x: w * 0.50, y: h * 0.10 }, // 4: Tech & US Fed (Top Orbit, well above tagline)
+      { x: w * 0.50, y: h * 0.82 }, // 5: Consumer & FMCG (Bottom Orbit, below tagline)
     ];
+
+    const textCx = w * 0.5;
+    const textCy = h * 0.44;
+    const textHalfW = Math.min(w * 0.42, 420);
+    const textHalfH = 100;
+    const safeMargin = 40;
+
+    // Helper to ensure any node spawns strictly outside the hero text box
+    const ensureOutsideText = (x: number, y: number): { x: number; y: number } => {
+      const dx = x - textCx;
+      const dy = y - textCy;
+      if (Math.abs(dx) < textHalfW + safeMargin && Math.abs(dy) < textHalfH + safeMargin) {
+        if (Math.abs(dx) / (textHalfW + safeMargin) > Math.abs(dy) / (textHalfH + safeMargin)) {
+          const signX = dx >= 0 ? 1 : -1;
+          return { x: textCx + signX * (textHalfW + safeMargin + 35), y };
+        } else {
+          const signY = dy >= 0 ? 1 : -1;
+          return { x, y: textCy + signY * (textHalfH + safeMargin + 35) };
+        }
+      }
+      return { x, y };
+    };
 
     const clusterCounters: Record<number, number> = { 0: 0, 1: 0, 2: 0, 3: 0, 4: 0, 5: 0 };
 
@@ -420,9 +442,14 @@ export const ConstellationCanvas: React.FC<ConstellationCanvasProps> = ({
 
       // Arrange cluster members in tight cohesive orbits around their community center
       const angle = (memberIdx / Math.max(1, memberCount)) * Math.PI * 2 + 0.3;
-      const spreadR = 48 + (memberIdx % 2) * 28;
-      const hx = Math.max(50, Math.min(w - 50, center.x + Math.cos(angle) * spreadR));
-      const hy = Math.max(50, Math.min(h - 50, center.y + Math.sin(angle) * spreadR));
+      const spreadR = 48 + (memberIdx % 2) * 22;
+      let rawX = Math.max(55, Math.min(w - 55, center.x + Math.cos(angle) * spreadR));
+      let rawY = Math.max(55, Math.min(h - 55, center.y + Math.sin(angle) * spreadR));
+
+      // Guarantee no canonical node is initialized within the hero text zone
+      const safePos = ensureOutsideText(rawX, rawY);
+      const hx = safePos.x;
+      const hy = safePos.y;
 
       nodes.push({
         id: cfg.id,
@@ -435,8 +462,8 @@ export const ConstellationCanvas: React.FC<ConstellationCanvasProps> = ({
         y: hy,
         homeX: hx,
         homeY: hy,
-        vx: (Math.random() - 0.5) * 0.15,
-        vy: (Math.random() - 0.5) * 0.15,
+        vx: (Math.random() - 0.5) * 0.08,
+        vy: (Math.random() - 0.5) * 0.08,
         radius: 6,
         baseAlpha: 0.85,
         transition: 0.0,
@@ -447,11 +474,15 @@ export const ConstellationCanvas: React.FC<ConstellationCanvasProps> = ({
       });
     });
 
-    // Ambient background stars for cosmic depth
+    // Ambient background stars for cosmic depth (guaranteed outside text zone)
     const ambientCount = 50;
     for (let i = 0; i < ambientCount; i++) {
-      const sx = Math.random() * w;
-      const sy = Math.random() * h;
+      let sx = Math.random() * w;
+      let sy = Math.random() * h;
+      const safeStar = ensureOutsideText(sx, sy);
+      sx = safeStar.x;
+      sy = safeStar.y;
+
       nodes.push({
         id: `star_${i}`,
         title: `Star ${i}`,
@@ -463,8 +494,8 @@ export const ConstellationCanvas: React.FC<ConstellationCanvasProps> = ({
         y: sy,
         homeX: sx,
         homeY: sy,
-        vx: (Math.random() - 0.5) * 0.1,
-        vy: (Math.random() - 0.5) * 0.1,
+        vx: (Math.random() - 0.5) * 0.06,
+        vy: (Math.random() - 0.5) * 0.06,
         radius: Math.random() * 1.6 + 0.6,
         baseAlpha: Math.random() * 0.35 + 0.12,
         transition: 0.0,
@@ -680,11 +711,11 @@ export const ConstellationCanvas: React.FC<ConstellationCanvasProps> = ({
       ctx.scale(dpr, dpr);
       ctx.clearRect(0, 0, w, h);
 
-      // 1. Sleek Background: Deep Radial Gradient (NO GRID)
-      const bgGrad = ctx.createRadialGradient(w / 2, h / 2, 60, w / 2, h / 2, Math.max(w, h) * 0.72);
-      bgGrad.addColorStop(0, '#101524'); // Ambient midnight glow in center
-      bgGrad.addColorStop(0.5, '#090c13'); // Deep slate-ink
-      bgGrad.addColorStop(1, '#050608'); // Pure obsidian edges
+      // 1. Sleek Blackish Canvas Background: Pure Obsidian Void
+      const bgGrad = ctx.createRadialGradient(w * 0.5, h * 0.44, 50, w * 0.5, h * 0.44, Math.max(w, h) * 0.85);
+      bgGrad.addColorStop(0, '#0a0d14'); // Ambient midnight glow behind center text
+      bgGrad.addColorStop(0.45, '#040507'); // Deep black
+      bgGrad.addColorStop(1, '#000000'); // Pure obsidian black
       ctx.fillStyle = bgGrad;
       ctx.fillRect(0, 0, w, h);
 
@@ -703,91 +734,144 @@ export const ConstellationCanvas: React.FC<ConstellationCanvasProps> = ({
       const selectedNode = selectedId ? nodeMap.get(selectedId) : null;
       const selectedNeighborIds = new Set<string>(selectedNode ? selectedNode.neighbors : []);
 
-      // 2. Physics: ONLY NEARBY NODES MOVE when cursor moves, each with random small distance
+      // 2. Physics: Subtle celestial drift + proximity cursor response + stable non-oscillating constraints
       const mVel = mouseVelocityRef.current;
       const mouseIsInside = mouseRef.current.isInside;
       const mx = mouseRef.current.x;
       const my = mouseRef.current.y;
       const mouseSpeed = Math.hypot(mVel.vx, mVel.vy);
 
+      // Hero text exclusion box parameters
+      const textCx = w * 0.5;
+      const textCy = h * 0.44;
+      const textHalfW = Math.min(w * 0.42, 420);
+      const textHalfH = 100;
+      const safeBuffer = 28;
+      const boxW = textHalfW + safeBuffer;
+      const boxH = textHalfH + safeBuffer;
+
       for (const node of nodes) {
-        // A. ONLY nearby nodes within 165px move when cursor moves!
-        if (mouseIsInside) {
+        // A. Subtle autonomous celestial breathing drift (smooth, graceful moving action like interactive_wireframe)
+        const nodeHash = (node.id.charCodeAt(0) * 19 + (node.id.charCodeAt(1) || 7)) % 100;
+        const driftT = now * 0.0007 + nodeHash;
+        node.vx += Math.sin(driftT) * 0.025;
+        node.vy += Math.cos(driftT * 0.85) * 0.025;
+
+        // B. ONLY nearby nodes within 160px move when cursor is actively moving!
+        // (Prevent resting cursor jitter by requiring active mouse speed)
+        if (mouseIsInside && mouseSpeed > 0.02) {
           const cdx = node.x - mx;
           const cdy = node.y - my;
           const cdist = Math.hypot(cdx, cdy);
-          const influenceRadius = 165;
+          const influenceRadius = 160;
 
           if (cdist < influenceRadius && cdist > 0) {
             const proximity = 1 - cdist / influenceRadius; // 1.0 at cursor, 0.0 at edge
             const weight = node.randomWeight; // Each nearby node has a unique sensitivity
             const angle = Math.atan2(cdy, cdx) + node.randomAngleOffset;
 
-            if (mouseSpeed > 0.01) {
-              // Cursor is moving: impart small, randomized displacement
-              const impulse = Math.min(mouseSpeed, 2.0) * 0.03 * proximity * weight;
-              node.vx += Math.cos(angle) * impulse + mVel.vx * 0.02 * proximity * weight;
-              node.vy += Math.sin(angle) * impulse + mVel.vy * 0.02 * proximity * weight;
-            } else {
-              // Resting nearby: gentle breathing push
-              const gentlePush = proximity * 0.002 * weight;
-              node.vx += Math.cos(angle) * gentlePush;
-              node.vy += Math.sin(angle) * gentlePush;
-            }
+            // Impart small, organic randomized displacement
+            const impulse = Math.min(mouseSpeed, 2.5) * 0.028 * proximity * weight;
+            node.vx += Math.cos(angle) * impulse + mVel.vx * 0.015 * proximity * weight;
+            node.vy += Math.sin(angle) * impulse + mVel.vy * 0.015 * proximity * weight;
           }
         }
 
-        // B. Connected Nodes Stay Together: Spring attraction between connected pairs
+        // C. Connected Nodes Stay Together: LOCAL Spring attraction between connected peers
         if (node.type !== 'Star') {
+          const myCluster = CLUSTER_MAP[node.id];
           for (const neighborId of node.neighbors) {
             const neighbor = nodeMap.get(neighborId);
             if (neighbor) {
+              const neighborCluster = CLUSTER_MAP[neighborId];
               const ndx = neighbor.x - node.x;
               const ndy = neighbor.y - node.y;
               const ndist = Math.hypot(ndx, ndy);
-              if (ndist > 110) {
-                // Pull closer if drifting too far
-                const pull = (ndist - 110) * 0.0003;
-                node.vx += (ndx / ndist) * pull;
-                node.vy += (ndy / ndist) * pull;
-              } else if (ndist < 45 && ndist > 0) {
-                // Repel gently so they don't overlap completely
-                const repel = (45 - ndist) * 0.0005;
-                node.vx -= (ndx / ndist) * repel;
-                node.vy -= (ndy / ndist) * repel;
+
+              // Only apply spring forces between nodes in the same cluster or nearby (< 180px)
+              // This strictly prevents cross-screen nodes from dragging each other across the hero text!
+              if (myCluster === neighborCluster || ndist < 180) {
+                if (ndist > 90 && ndist < 220) {
+                  const pull = (ndist - 90) * 0.00015;
+                  node.vx += (ndx / ndist) * pull;
+                  node.vy += (ndy / ndist) * pull;
+                } else if (ndist < 38 && ndist > 0) {
+                  const repel = (38 - ndist) * 0.0003;
+                  node.vx -= (ndx / ndist) * repel;
+                  node.vy -= (ndy / ndist) * repel;
+                }
               }
             }
           }
 
-          // C. Anchor lightly to home cluster center so constellations stay grouped
+          // D. Smooth, critically damped anchor to home position so constellations stay grouped
           const hdx = node.homeX - node.x;
           const hdy = node.homeY - node.y;
-          node.vx += hdx * 0.00035;
-          node.vy += hdy * 0.00035;
+          node.vx += hdx * 0.0004;
+          node.vy += hdy * 0.0004;
         }
 
-        // Velocity damping
-        node.vx *= 0.94;
-        node.vy *= 0.94;
+        // E. Strict Hero Text Exclusion Zone: GUARANTEE NO NODE EVER OVERLAPS THE HEADLINE
+        const tdx = node.x - textCx;
+        const tdy = node.y - textCy;
+        const overlapX = boxW - Math.abs(tdx);
+        const overlapY = boxH - Math.abs(tdy);
+
+        if (overlapX > 0 && overlapY > 0) {
+          // Inside the text box: cleanly clamp to nearest boundary & zero out inward velocity (NO artificial kick!)
+          if (overlapX < overlapY) {
+            const signX = tdx >= 0 ? 1 : -1;
+            node.x = textCx + signX * boxW;
+            if (node.vx * signX < 0) {
+              node.vx = 0; // stop inward velocity completely
+            }
+          } else {
+            const signY = tdy >= 0 ? 1 : -1;
+            node.y = textCy + signY * boxH;
+            if (node.vy * signY < 0) {
+              node.vy = 0; // stop inward velocity completely
+            }
+          }
+        } else {
+          // Approaching within 35px: smooth quadratic deceleration buffer field
+          const distX = Math.max(0, Math.abs(tdx) - boxW);
+          const distY = Math.max(0, Math.abs(tdy) - boxH);
+          if (distX < 35 && distY < 35) {
+            const factorX = 1 - distX / 35;
+            const factorY = 1 - distY / 35;
+            if (distX < 35 && Math.abs(tdy) < boxH) {
+              node.vx += Math.sign(tdx || 1) * factorX * factorX * 0.02;
+            }
+            if (distY < 35 && Math.abs(tdx) < boxW) {
+              node.vy += Math.sign(tdy || 1) * factorY * factorY * 0.02;
+            }
+          }
+        }
+
+        // Velocity damping (critically damped so oscillations die out immediately)
+        node.vx *= 0.92;
+        node.vy *= 0.92;
         node.x += node.vx;
         node.y += node.vy;
 
-        // Boundaries
+        // Canvas outer boundary clamping
         const padding = node.type !== 'Star' ? 45 : 10;
+        const bottomPadding = node.type !== 'Star' ? 88 : 15;
+
         if (node.x < padding) {
           node.x = padding;
-          node.vx = Math.abs(node.vx);
+          node.vx = Math.abs(node.vx) * 0.5;
         } else if (node.x > w - padding) {
           node.x = w - padding;
-          node.vx = -Math.abs(node.vx);
+          node.vx = -Math.abs(node.vx) * 0.5;
         }
 
         if (node.y < padding) {
           node.y = padding;
-          node.vy = Math.abs(node.vy);
-        } else if (node.y > h - padding) {
-          node.y = h - padding;
-          node.vy = -Math.abs(node.vy);
+          node.vy = Math.abs(node.vy) * 0.5;
+        } else if (node.y > h - bottomPadding) {
+          node.y = h - bottomPadding;
+          node.vy = -Math.abs(node.vy) * 0.5;
         }
 
         // D. 0.3s Transition target: ONLY CLICKED/SELECTED node & its neighbors blossom into color!

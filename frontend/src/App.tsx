@@ -85,16 +85,18 @@ export const App: React.FC = () => {
 
       {/* Main Landing Page Content */}
       <main className="flex-1">
-        {/* 1. Hero Section with Three.js Rocket Launch Simulation */}
-        <HeroSection
-          onSelectTicker={(ticker) => {
-            handleSelectEntity(ticker);
-            handleExploreClick();
-          }}
-          onExploreClick={handleExploreClick}
-        />
+        {/* 1. HeroSection preserved but hidden per user request */}
+        {false && (
+          <HeroSection
+            onSelectTicker={(ticker) => {
+              handleSelectEntity(ticker);
+              handleExploreClick();
+            }}
+            onExploreClick={handleExploreClick}
+          />
+        )}
 
-        {/* 2. Interactive Constellation Graph Section */}
+        {/* 2. Interactive Constellation Graph Section (Now New Hero Section) */}
         <ConstellationSection
           entities={GRAPH_ENTITIES}
           activeEntity={activeEntity}
