@@ -11,6 +11,7 @@ from pydantic import BaseModel, ConfigDict, Field
 
 from stockgraph.adapters.api.data_client import DataServiceClient
 from stockgraph.adapters.llm.providers import LiteLLMChatProvider
+from stockgraph.adapters.messaging.consumer import renewable_lock
 from stockgraph.adapters.repositories.falkor.repository import GraphRepository
 from stockgraph.application.graph_queries.context import GraphContextService
 from stockgraph.application.processors.news_eligibility import (
@@ -19,7 +20,13 @@ from stockgraph.application.processors.news_eligibility import (
     NewsEligibilityVerdict,
 )
 from stockgraph.domain.context import GraphContextResponse
+from stockgraph.domain.developer import (
+    DeveloperEdgeCreate,
+    DeveloperEdgeDeleteResponse,
+    DeveloperEdgeResponse,
+)
 from stockgraph.domain.enums import Window
+from stockgraph.domain.manual import ManualEntityInput, ManualEntityKind, ManualNewsInput
 from stockgraph.runtime.settings import settings
 
 
@@ -82,6 +89,85 @@ def create_app(
             ) from exc
         except httpx.RequestError as exc:
             raise HTTPException(503, "Data service is unavailable") from exc
+
+    @app.post("/api/v1/manual/stocks", status_code=202)
+    async def register_manual_stock(body: StockRegistration) -> dict:
+        """Explicit manual-registration alias; stock identity stays source-owned."""
+        return await register_stock(body)
+
+    @app.post("/api/v1/manual/entities/{kind}", status_code=202)
+    async def submit_manual_entity(kind: ManualEntityKind, body: ManualEntityInput) -> dict:
+        """Commit a canonical entity, then let the graph worker infer edges.
+
+        Arbitrary node labels and caller-supplied edges are intentionally not
+        accepted.  The Data Service commits a registry revision and outbox
+        event; processing that event invokes ``DynamicOntologyBuilder`` for
+        the affected stock contexts.
+        """
+        try:
+            return await app.state.data.upsert_entity(kind, body.model_dump(exclude_none=True))
+        except httpx.HTTPStatusError as exc:
+            raise HTTPException(exc.response.status_code, "Data service rejected manual entity") from exc
+        except httpx.RequestError as exc:
+            raise HTTPException(503, "Data service is unavailable") from exc
+
+    @app.post("/api/v1/manual/news", status_code=202)
+    async def submit_manual_news(body: ManualNewsInput) -> dict:
+        """Stage manual news for the normal LLM-backed graph ingestion path."""
+        try:
+            return await app.state.data.submit_manual_news(body.model_dump(mode="json", exclude_none=True))
+        except httpx.HTTPStatusError as exc:
+            raise HTTPException(exc.response.status_code, "Data service rejected manual news") from exc
+        except httpx.RequestError as exc:
+            raise HTTPException(503, "Data service is unavailable") from exc
+
+    async def developer_write(callback):
+        """Run an explicit developer mutation under the graph-writer lease."""
+        if not settings.developer_graph_mutations_enabled:
+            raise HTTPException(403, "Developer graph mutations are disabled")
+        with renewable_lock(app.state.broker) as guard:
+            if not guard:
+                raise HTTPException(409, "Graph writer is busy; retry the mutation")
+            if hasattr(app.state.repo, "set_write_guard"):
+                app.state.repo.set_write_guard(guard)
+            try:
+                return await asyncio.to_thread(callback)
+            finally:
+                if hasattr(app.state.repo, "set_write_guard"):
+                    app.state.repo.set_write_guard(None)
+
+    @app.post(
+        "/api/v1/developer/edges", status_code=201, response_model=DeveloperEdgeResponse
+    )
+    async def create_developer_edge(body: DeveloperEdgeCreate) -> DeveloperEdgeResponse:
+        """Create a manual FalkorDB edge between two existing graph nodes."""
+        try:
+            result = await developer_write(
+                lambda: app.state.repo.create_developer_edge(
+                    source_kind=body.source.kind,
+                    source_id=body.source.id,
+                    target_kind=body.target.kind,
+                    target_id=body.target.id,
+                    relation=body.relation,
+                    rationale=body.rationale,
+                    actor=body.actor,
+                    confidence=body.confidence,
+                    metadata=body.metadata,
+                )
+            )
+        except KeyError as exc:
+            raise HTTPException(404, str(exc)) from exc
+        return DeveloperEdgeResponse.model_validate(result)
+
+    @app.delete(
+        "/api/v1/developer/edges/{edge_id}", response_model=DeveloperEdgeDeleteResponse
+    )
+    async def delete_developer_edge(edge_id: str) -> DeveloperEdgeDeleteResponse:
+        """Delete a developer-created edge by ID; inferred and baseline edges are protected."""
+        deleted = await developer_write(lambda: app.state.repo.delete_developer_edge(edge_id))
+        if not deleted:
+            raise HTTPException(404, "Developer edge not found")
+        return DeveloperEdgeDeleteResponse(edge_id=edge_id, deleted=True)
 
     @app.get("/api/v1/jobs/{job_id}")
     async def job_status(job_id: UUID) -> dict:

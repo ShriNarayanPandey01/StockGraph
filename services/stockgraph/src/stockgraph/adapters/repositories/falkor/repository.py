@@ -5,7 +5,9 @@ from __future__ import annotations
 import hashlib
 import json
 import re
+import time
 from typing import Any
+from uuid import uuid4
 
 from stockgraph.adapters.repositories.falkor.legacy_repository import FalkorGraphRAGRepository
 from stockgraph.runtime.settings import settings
@@ -288,6 +290,78 @@ class GraphRepository(FalkorGraphRAGRepository):
             f"MATCH (n:{kind} {{{key}:$id}}) SET n.processing_state='failed' RETURN n.{key}",
             {"id": entity_id},
         )
+
+    def create_developer_edge(
+        self,
+        *,
+        source_kind: str,
+        source_id: str,
+        target_kind: str,
+        target_id: str,
+        relation: str,
+        rationale: str,
+        actor: str,
+        confidence: float | None,
+        metadata: dict[str, Any],
+    ) -> dict[str, Any]:
+        """Create an auditable manual relationship between existing graph nodes.
+
+        Node labels and business IDs are parameters, rather than interpolated
+        into Cypher.  This supports any existing labeled node while preventing
+        Cypher injection.  The relationship label stays ``DEVELOPER_LINK``;
+        the requested semantic relation is data, not executable Cypher.
+        """
+        edge_id = f"developer:{uuid4()}"
+        event_ts = int(time.time())
+        props = {
+            "edge_id": edge_id,
+            "relation": relation,
+            "rationale": rationale,
+            "actor": actor,
+            "confidence": confidence,
+            "event_ts": event_ts,
+            "inferred_by": "developer_api",
+            "metadata_json": json.dumps(metadata, sort_keys=True, default=str),
+        }
+        rows = self._run(
+            "MATCH (source), (target) "
+            "WHERE $source_kind IN labels(source) "
+            "AND coalesce(source.ticker,source.id)=$source_id "
+            "AND $target_kind IN labels(target) "
+            "AND coalesce(target.ticker,target.id)=$target_id "
+            "CREATE (source)-[r:DEVELOPER_LINK {edge_id:$edge_id}]->(target) "
+            "SET r += $props RETURN r.edge_id",
+            {
+                "source_kind": source_kind,
+                "source_id": source_id,
+                "target_kind": target_kind,
+                "target_id": target_id,
+                "edge_id": edge_id,
+                "props": props,
+            },
+        )
+        if not rows:
+            raise KeyError("Source or target graph node was not found")
+        return {
+            "edge_id": edge_id,
+            "source": {"kind": source_kind, "id": source_id},
+            "target": {"kind": target_kind, "id": target_id},
+            "relation": relation,
+            "rationale": rationale,
+            "actor": actor,
+            "confidence": confidence,
+            "event_ts": event_ts,
+            "metadata": metadata,
+        }
+
+    def delete_developer_edge(self, edge_id: str) -> bool:
+        """Delete exactly one developer override, never a system/LLM edge."""
+        rows = self._run(
+            "MATCH ()-[r:DEVELOPER_LINK {edge_id:$edge_id}]->() "
+            "WITH r DELETE r RETURN 1 AS deleted",
+            {"edge_id": edge_id},
+        )
+        return bool(rows)
 
     def historical_news(self, start_ts: int, offset: int = 0, limit: int = 100) -> list[dict]:
         offset, limit = max(0, int(offset)), min(200, max(1, int(limit)))

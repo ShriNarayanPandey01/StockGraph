@@ -85,6 +85,48 @@ def test_entity_api_rejects_unresolved_stock_and_numeric_macros():
         )
 
 
+def test_manual_news_is_staged_then_enqueued_for_graph_inference():
+    repo = AsyncMock()
+    repo.get_entity.return_value = {"ticker": "TCS"}
+    repo.commit_news.return_value = 1
+    with TestClient(create_app(repo, AsyncMock())) as client:
+        response = client.post(
+            "/api/v1/manual/news",
+            json={
+                "headline": "Copper prices rise on supply disruption",
+                "summary": "Industrial metals markets tightened.",
+                "source_url": "https://example.test/copper-rise",
+                "published_at": "2026-10-23T09:00:00+00:00",
+                "category": "COMMODITY",
+                "tickers": ["tcs"],
+                "ticker_sentiment": {"TCS": 0.2},
+            },
+        )
+    assert response.status_code == 202
+    assert response.json()["state"] == "queued"
+    result = repo.commit_news.await_args.args[0]
+    assert result.provider_id == "MANUAL"
+    assert result.articles[0].tickers == ("TCS",)
+    assert result.approvals[result.articles[0].external_id][0] == "RULES"
+
+
+def test_manual_news_rejects_unknown_or_unpaired_ticker_sentiment():
+    repo = AsyncMock()
+    repo.get_entity.return_value = None
+    with TestClient(create_app(repo, AsyncMock())) as client:
+        response = client.post(
+            "/api/v1/manual/news",
+            json={
+                "headline": "Copper prices rise",
+                "source_url": "https://example.test/copper-rise",
+                "published_at": "2026-10-23T09:00:00+00:00",
+                "category": "COMMODITY",
+                "tickers": ["UNKNOWN"],
+            },
+        )
+    assert response.status_code == 422
+
+
 def test_data_service_has_no_graph_or_llm_configuration():
     fields = Settings.model_fields
     assert not any("falkor" in name or "llm" in name for name in fields)

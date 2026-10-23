@@ -173,6 +173,140 @@ GET /api/v1/stocks/RELIANCE/context?window=LAST_1Y&limit=50&offset=50&as_of_ts=1
 A stock that has not been projected returns `404`. An expired or future
 `as_of_ts` returns `422`.
 
+### Manual graph ingestion
+
+The graph service offers manual-ingestion endpoints, but they deliberately do
+not write arbitrary nodes or caller-supplied edges into FalkorDB. Each request
+is forwarded to the Data Service, committed to the canonical SQL catalog or
+raw-news store, emitted through the durable outbox, and processed by the
+normal StockGraph worker. Consequently, manual submissions receive the same
+LLM edge inference, confidence thresholding, news deduplication, and retries
+as provider-ingested records.
+
+| Method | Path | Use |
+|---|---|---|
+| `POST` | `/api/v1/manual/stocks` | Explicit alias for stock registration. It resolves an official NSE/BSE identity; it never creates a free-text stock node. |
+| `POST` | `/api/v1/manual/entities/{kind}` | Add or revise a canonical `Commodity`, `MacroFactor`, or `Sector`. |
+| `POST` | `/api/v1/manual/news` | Stage a human-supplied news article and enqueue normal LLM-backed graph processing. |
+
+`kind` accepts only `Commodity`, `MacroFactor`, or `Sector`. Other node labels
+and direct edge writes are rejected by design, preserving canonical identity
+and preventing fabricated graph relationships.
+
+```http
+POST /api/v1/manual/entities/Commodity
+Content-Type: application/json
+
+{
+  "id": "LITHIUM_CARBONATE",
+  "name": "Lithium Carbonate",
+  "description": "Battery-grade lithium carbonate benchmark.",
+  "aliases": ["lithium"],
+  "unit": "USD/tonne"
+}
+```
+
+```json
+{
+  "entity_id": "LITHIUM_CARBONATE",
+  "revision": 1,
+  "changed": true,
+  "state": "graph_processing"
+}
+```
+
+The background graph worker projects the entity and invokes the LLM
+`DynamicOntologyBuilder` against affected stock-context cards. It persists
+only canonical, allowed relationships that meet the configured confidence
+floor; the request cannot choose those edges.
+
+```http
+POST /api/v1/manual/news
+Content-Type: application/json
+
+{
+  "headline": "Lithium carbonate prices rise on constrained supply",
+  "summary": "Tighter supply lifted battery-material prices this week.",
+  "source_url": "https://research.example/lithium-supply",
+  "source": "Analyst research",
+  "published_at": "2026-10-23T09:00:00+00:00",
+  "category": "COMMODITY",
+  "tickers": ["TATAMOTORS"],
+  "ticker_sentiment": {"TATAMOTORS": -0.3}
+}
+```
+
+```json
+{
+  "external_id": "manual-8ca243...",
+  "state": "queued",
+  "eligibility": {"source": "RULES", "reason": "CLEAR_COMMODITY"}
+}
+```
+
+`tickers` must already be registered canonical tickers. `ticker_sentiment`
+keys must also appear in `tickers`, and each score must be in `[-1.0, 1.0]`.
+`published_at` is required and must include a timezone. When `external_id` is
+omitted, the Data Service deterministically derives one from `source_url`;
+submitting unchanged content again returns `state`:
+`unchanged`. An eligible manual article still waits for the graph worker and
+LLM to finish before its inferred edges appear in graph-context responses.
+
+### Developer graph-edge overrides (FalkorDB)
+
+StockGraph uses FalkorDB, not Neo4j. The developer edge API is disabled by
+default and must be explicitly enabled with
+`DEVELOPER_GRAPH_MUTATIONS_ENABLED=true` in a protected development/admin
+environment. It writes only to FalkorDB and takes the same renewable graph
+writer lease as the worker.
+
+| Method | Path | Purpose |
+|---|---|---|
+| `POST` | `/api/v1/developer/edges` | Create an auditable `DEVELOPER_LINK` between any two existing labeled graph nodes. |
+| `DELETE` | `/api/v1/developer/edges/{edge_id}` | Delete a developer-created link. |
+
+The submitted `relation` is stored as edge metadata; it is not interpolated
+into Cypher. This permits a developer-defined semantic name without allowing
+Cypher injection or arbitrary relationship labels. Direct deletion of LLM,
+provider, curated, and macro-baseline edges is not exposed by this API.
+
+```http
+POST /api/v1/developer/edges
+Content-Type: application/json
+
+{
+  "source": {"kind": "Stock", "id": "RELIANCE"},
+  "target": {"kind": "Commodity", "id": "BRENT_CRUDE"},
+  "relation": "MANUALLY_REVIEWED",
+  "rationale": "Developer confirmed refinery-margin sensitivity from the latest annual report.",
+  "actor": "jane@example.com",
+  "confidence": 0.9,
+  "metadata": {"review_ticket": "SG-123"}
+}
+```
+
+```json
+{
+  "edge_id": "developer:9d5be0d3-3c21-4c1f-a6f2-37c09342a91c",
+  "source": {"kind": "Stock", "id": "RELIANCE"},
+  "target": {"kind": "Commodity", "id": "BRENT_CRUDE"},
+  "relation": "MANUALLY_REVIEWED",
+  "rationale": "Developer confirmed refinery-margin sensitivity from the latest annual report.",
+  "actor": "jane@example.com",
+  "confidence": 0.9,
+  "event_ts": 1761206400,
+  "metadata": {"review_ticket": "SG-123"}
+}
+```
+
+```http
+DELETE /api/v1/developer/edges/developer:9d5be0d3-3c21-4c1f-a6f2-37c09342a91c
+```
+
+```json
+{"edge_id":"developer:9d5be0d3-3c21-4c1f-a6f2-37c09342a91c","deleted":true}
+```
+
 ### Internal news eligibility endpoint
 
 `POST /internal/v1/news/eligibility` is for the Data Service only; do not

@@ -12,6 +12,7 @@ class Settings(BaseSettings):
     falkor_graph_name: str = "stock_graph"
     redis_url: str = "redis://localhost:6380/0"
     data_service_url: str = "http://localhost:8001"
+    developer_graph_mutations_enabled: bool = False
     app_timezone: str = "Asia/Kolkata"
     event_stream: str = "stockgraph:events:v1"
     event_consumer_group: str = "graph-v1"

@@ -388,6 +388,106 @@ def test_api_registration_returns_accepted_and_separate_processing_status():
     assert client.get("/api/v1/stocks/STOCK0/context?from_date=2020-01-01").status_code == 422
 
 
+def test_manual_graph_api_proxies_entities_news_and_stock_registration():
+    class Data:
+        async def register_stock(self, payload):
+            return {"job_id": "job", "state": "pending", "query": payload["query"]}
+
+        async def upsert_entity(self, kind, payload):
+            return {"entity_id": payload["id"], "revision": 1, "changed": True, "state": "graph_processing", "kind": kind}
+
+        async def submit_manual_news(self, payload):
+            return {"external_id": "manual-1", "state": "queued", "headline": payload["headline"]}
+
+    client = TestClient(create_app(Repo(), Broker(), Data()))
+    assert client.post("/api/v1/manual/stocks", json={"query": "Reliance"}).status_code == 202
+    entity = client.post(
+        "/api/v1/manual/entities/Commodity",
+        json={"id": "LITHIUM_CARBONATE", "name": "Lithium Carbonate"},
+    )
+    assert entity.status_code == 202 and entity.json()["state"] == "graph_processing"
+    news = client.post(
+        "/api/v1/manual/news",
+        json={
+            "headline": "Lithium prices rise",
+            "source_url": "https://example.test/lithium-rise",
+            "published_at": "2026-10-23T09:00:00+00:00",
+            "category": "COMMODITY",
+        },
+    )
+    assert news.status_code == 202 and news.json()["state"] == "queued"
+
+
+def test_developer_edge_api_is_disabled_by_default():
+    client = TestClient(create_app(Repo(), Broker(), object()))
+    response = client.post(
+        "/api/v1/developer/edges",
+        json={
+            "source": {"kind": "Stock", "id": "STOCK0"},
+            "target": {"kind": "Commodity", "id": "BRENT_CRUDE"},
+            "relation": "MANUALLY_REVIEWED",
+            "rationale": "Developer review",
+            "actor": "local-developer",
+        },
+    )
+    assert response.status_code == 403
+
+
+def test_developer_edge_api_creates_and_deletes_only_developer_links(monkeypatch):
+    import stockgraph.runtime.api as api_module
+
+    class DeveloperRepo(Repo):
+        def set_write_guard(self, guard):
+            self.guard = guard
+
+        def create_developer_edge(self, **kwargs):
+            self.created = kwargs
+            return {
+                "edge_id": "developer:1",
+                "source": {"kind": kwargs["source_kind"], "id": kwargs["source_id"]},
+                "target": {"kind": kwargs["target_kind"], "id": kwargs["target_id"]},
+                "relation": kwargs["relation"],
+                "rationale": kwargs["rationale"],
+                "actor": kwargs["actor"],
+                "confidence": kwargs["confidence"],
+                "event_ts": 1,
+                "metadata": kwargs["metadata"],
+            }
+
+        def delete_developer_edge(self, edge_id):
+            self.deleted = edge_id
+            return edge_id == "developer:1"
+
+    @contextmanager
+    def graph_lock(_broker):
+        yield lambda: None
+
+    monkeypatch.setattr(settings, "developer_graph_mutations_enabled", True)
+    monkeypatch.setattr(api_module, "renewable_lock", graph_lock)
+    repo = DeveloperRepo()
+    client = TestClient(create_app(repo, Broker(), object()))
+    created = client.post(
+        "/api/v1/developer/edges",
+        json={
+            "source": {"kind": "Stock", "id": "STOCK0"},
+            "target": {"kind": "Commodity", "id": "BRENT_CRUDE"},
+            "relation": "MANUALLY_REVIEWED",
+            "rationale": "Developer reviewed the exposure.",
+            "actor": "local-developer",
+            "confidence": 0.9,
+            "metadata": {"ticket": "SG-123"},
+        },
+    )
+    assert created.status_code == 201
+    assert repo.created["relation"] == "MANUALLY_REVIEWED"
+    assert created.json()["edge_id"] == "developer:1"
+    assert client.delete("/api/v1/developer/edges/developer:1").json() == {
+        "edge_id": "developer:1",
+        "deleted": True,
+    }
+    assert client.delete("/api/v1/developer/edges/developer:missing").status_code == 404
+
+
 def test_service_package_has_no_sql_driver_or_cross_service_imports():
     import ast
     from pathlib import Path
@@ -449,6 +549,32 @@ def test_repository_refuses_writes_after_lease_loss():
     repo.set_write_guard(lost)
     with pytest.raises(RuntimeError, match="Lease lost"):
         repo.merge_stock_profile_embedding("STOCK0", [1.0, 0.0])
+
+
+def test_repository_developer_edges_parameterize_node_labels_and_delete_by_id():
+    repo = GraphRepository(graph_name="never_connect")
+    captured = []
+    repo._run = lambda query, params: captured.append((query, params)) or [[params.get("edge_id")]]
+    edge = repo.create_developer_edge(
+        source_kind="Stock",
+        source_id="STOCK0",
+        target_kind="Commodity",
+        target_id="BRENT_CRUDE",
+        relation="MANUALLY_REVIEWED",
+        rationale="Developer review",
+        actor="local-developer",
+        confidence=0.9,
+        metadata={"ticket": "SG-123"},
+    )
+    assert edge["source"] == {"kind": "Stock", "id": "STOCK0"}
+    create_query, create_params = captured[-1]
+    assert "$source_kind IN labels(source)" in create_query
+    assert "DEVELOPER_LINK" in create_query
+    assert create_params["source_kind"] == "Stock"
+    assert repo.delete_developer_edge(edge["edge_id"])
+    delete_query, delete_params = captured[-1]
+    assert "DELETE r" in delete_query
+    assert delete_params["edge_id"] == edge["edge_id"]
 
 
 def test_stream_pending_entries_are_recovered_before_new_reads():
