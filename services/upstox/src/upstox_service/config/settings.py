@@ -12,8 +12,11 @@ class Settings(BaseSettings):
     app_timezone: str = "Asia/Kolkata"
     upstox_analytics_token: SecretStr = SecretStr("")
     upstox_api_base_url: str = "https://api.upstox.com/v2"
+    upstox_api_v3_base_url: str = "https://api.upstox.com/v3"
     upstox_timeout_seconds: float = 30
     upstox_max_retries: int = Field(default=3, ge=0, le=6)
+    market_live_cache_ttl_seconds: int = Field(default=30, ge=1, le=3600)
+    market_dated_cache_ttl_seconds: int = Field(default=3600, ge=60, le=86400)
     job_max_attempts: int = Field(default=3, ge=1)
     job_lease_seconds: int = Field(default=600, ge=60)
     marketaux_api_key: str = Field(default="", repr=False)

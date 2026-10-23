@@ -136,6 +136,35 @@ async def close_checkpoint_job():
     await run_locked("daily_close", lambda repo, config: collect_checkpoints(repo, config, "CLOSE"))
 
 
+async def equity_universe_job():
+    from upstox_service.adapters.providers.upstox.client import UpstoxClient
+    from upstox_service.adapters.providers.upstox.stock_data import UpstoxStockDataProvider
+    from upstox_service.application.stock_data import refresh_equity_universe
+
+    async def refresh(repo, config):
+        v2_client = UpstoxClient(
+            config.upstox_analytics_token,
+            base_url=config.upstox_api_base_url,
+            timeout=config.upstox_timeout_seconds,
+            max_retries=config.upstox_max_retries,
+        )
+        v3_client = UpstoxClient(
+            config.upstox_analytics_token,
+            base_url=config.upstox_api_v3_base_url,
+            timeout=config.upstox_timeout_seconds,
+            max_retries=config.upstox_max_retries,
+        )
+        try:
+            provider = UpstoxStockDataProvider(v2_client, v3_client)
+            await refresh_equity_universe(repo, provider)
+            return "SUCCESS"
+        finally:
+            await v2_client.close()
+            await v3_client.close()
+
+    await run_locked("daily_equity_universe", refresh)
+
+
 def build_scheduler(config: Settings | None = None) -> AsyncIOScheduler:
     config = config or Settings()
     url = urlsplit(config.redis_url)
@@ -155,6 +184,14 @@ def build_scheduler(config: Settings | None = None) -> AsyncIOScheduler:
         job_defaults={"coalesce": True, "max_instances": 1, "misfire_grace_time": 300},
     )
     scheduler.add_job(hourly_news_job, "cron", minute=0, id="hourly_news", replace_existing=True)
+    scheduler.add_job(
+        equity_universe_job,
+        "cron",
+        hour=6,
+        minute=0,
+        id="daily_equity_universe",
+        replace_existing=True,
+    )
     scheduler.add_job(
         open_checkpoint_job,
         "cron",
@@ -177,9 +214,12 @@ def build_scheduler(config: Settings | None = None) -> AsyncIOScheduler:
 
 
 async def run():
+    from upstox_service.adapters.repositories.timescale.stock_data import init_stock_data_schema
+
     config = Settings()
     repo = DataRepository(config.timescale_dsn)
     await repo.init_schema()
+    await init_stock_data_schema(repo)
     await repo.bootstrap()
     await repo.close()
     scheduler = build_scheduler(config)

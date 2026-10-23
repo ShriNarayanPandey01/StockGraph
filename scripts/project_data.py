@@ -40,6 +40,15 @@ TABLES = (
     "graph_outbox",
     "stock_fundamentals_raw",
     "normalized_news",
+    "equity_instruments",
+    "equity_universe_refresh",
+    "stock_company_profiles",
+    "stock_company_profile_versions",
+    "stock_shareholding_versions",
+    "stock_shareholding_sync",
+    "stock_daily_candles_raw",
+    "stock_daily_candles",
+    "stock_daily_candle_fetches",
 )
 # Preserve provider quota/degraded-provider and LLM spend/cache ledgers. The
 # scheduler store is removed only after writers have been explicitly stopped.
@@ -54,6 +63,7 @@ REDIS_PATTERNS = (
     "apscheduler.run_times",
     "upstox:lock:*",
     "upstox:scheduler:*",
+    "upstox:market:v1:*",
 )
 CONFIRMATION = "stockgraph/stock_graph"
 

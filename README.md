@@ -21,3 +21,16 @@ Graph API: `http://localhost:8000/docs`; data API: `http://localhost:8001/docs`.
 Configure credentials in the git-ignored `.env`. Enable `LLM_ENABLED=true` for
 semantic processing; offline/failed inference is visibly incomplete, not success.
 No trading execution or frontend graph UI is included.
+
+To verify the configured Upstox token without persisting data or publishing a
+graph event, run the provider smoke test from the repository root:
+
+```powershell
+$env:PYTHONPATH = "services/upstox/src"
+.venv/Scripts/python.exe scripts/verify_upstox_live.py
+```
+
+The Data Service also provides NSE/BSE equity search, company profiles,
+shareholding history and daily candles, plus on-demand option chains,
+smartlists, FII/DII flows, exchange holidays/status and derivatives analytics.
+Unregistered stock reads do not create graph nodes. See its `/docs` for inputs.

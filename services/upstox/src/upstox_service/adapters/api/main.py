@@ -6,7 +6,13 @@ from uuid import UUID
 from fastapi import FastAPI, HTTPException
 from redis.asyncio import Redis
 
+from upstox_service.adapters.api.market_routes import create_market_router
+from upstox_service.adapters.api.stock_routes import create_stock_router
+from upstox_service.adapters.providers.upstox.client import UpstoxClient
+from upstox_service.adapters.providers.upstox.market import UpstoxMarketProvider
+from upstox_service.adapters.providers.upstox.stock_data import UpstoxStockDataProvider
 from upstox_service.adapters.repositories.timescale.catalog import DataRepository
+from upstox_service.adapters.repositories.timescale.stock_data import init_stock_data_schema
 from upstox_service.config.settings import Settings
 from upstox_service.domain.enums import Window
 from upstox_service.domain.models import EntityInput, EntityKind, StockRegistration
@@ -18,19 +24,36 @@ def create_app(repository=None, redis_client=None, config: Settings | None = Non
     owned_redis = redis_client is None
     repository = repository or DataRepository(config.timescale_dsn)
     redis_client = redis_client or Redis.from_url(config.redis_url, decode_responses=True)
+    v2_client = UpstoxClient(config.upstox_analytics_token, base_url=config.upstox_api_base_url,
+                             timeout=config.upstox_timeout_seconds, max_retries=config.upstox_max_retries)
+    v3_client = UpstoxClient(config.upstox_analytics_token, base_url=config.upstox_api_v3_base_url,
+                             timeout=config.upstox_timeout_seconds, max_retries=config.upstox_max_retries)
+    stock_provider = UpstoxStockDataProvider(v2_client, v3_client)
 
     @asynccontextmanager
     async def lifespan(app):
-        if owned_repository:
-            await repository.init_schema()
-            await repository.bootstrap()
-        yield
-        if owned_repository:
-            await repository.close()
-        if owned_redis:
-            await redis_client.aclose()
+        try:
+            if owned_repository:
+                await repository.init_schema()
+                await init_stock_data_schema(repository)
+                await repository.bootstrap()
+            yield
+        finally:
+            await stock_provider.close()
+            await v2_client.close()
+            await v3_client.close()
+            if owned_repository:
+                await repository.close()
+            if owned_redis:
+                await redis_client.aclose()
 
     app = FastAPI(title="Upstox / Market Data Service", version="1.0.0", lifespan=lifespan)
+    app.include_router(create_stock_router(repository, stock_provider, redis_client, config))
+    app.include_router(create_market_router(
+        UpstoxMarketProvider(v2_client), redis_client,
+        live_ttl_seconds=config.market_live_cache_ttl_seconds,
+        dated_ttl_seconds=config.market_dated_cache_ttl_seconds,
+    ))
 
     @app.get("/health")
     async def health():

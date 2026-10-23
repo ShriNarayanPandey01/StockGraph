@@ -10,9 +10,16 @@ from pydantic import SecretStr
 
 
 class ProviderError(RuntimeError):
-    def __init__(self, message: str, *, retryable: bool = False):
+    def __init__(
+        self,
+        message: str,
+        *,
+        retryable: bool = False,
+        status_code: int | None = None,
+    ):
         super().__init__(message)
         self.retryable = retryable
+        self.status_code = status_code
 
 
 class UpstoxClient:
@@ -53,17 +60,23 @@ class UpstoxClient:
                 raise ProviderError("Upstox transport unavailable", retryable=True) from None
             if response.status_code in (401, 403):
                 raise ProviderError(
-                    "Upstox authorization rejected; check token and endpoint entitlement"
+                    "Upstox authorization rejected; check token and endpoint entitlement",
+                    status_code=response.status_code,
                 )
             if response.status_code == 429 or response.status_code >= 500:
                 if attempt < self._max_retries:
                     await asyncio.sleep(min(2**attempt, 8))
                     continue
                 raise ProviderError(
-                    f"Upstox temporarily unavailable (HTTP {response.status_code})", retryable=True
+                    f"Upstox temporarily unavailable (HTTP {response.status_code})",
+                    retryable=True,
+                    status_code=response.status_code,
                 )
             if response.status_code != 200:
-                raise ProviderError(f"Upstox endpoint unavailable (HTTP {response.status_code})")
+                raise ProviderError(
+                    f"Upstox endpoint unavailable (HTTP {response.status_code})",
+                    status_code=response.status_code,
+                )
             try:
                 body = response.json()
             except ValueError:

@@ -35,6 +35,21 @@ def test_registration_api_returns_accepted_without_fetching():
     repo.commit_company.assert_not_called()
 
 
+def test_data_service_exposes_stock_and_market_read_routes():
+    paths = create_app(AsyncMock(), AsyncMock()).openapi()["paths"]
+    assert {
+        "/api/v1/stocks/{ticker}",
+        "/api/v1/stocks/{ticker}/shareholding",
+        "/api/v1/stocks/{ticker}/candles",
+        "/api/v1/option-chains",
+        "/api/v1/market/institutional-flows",
+        "/api/v1/market/pcr",
+        "/api/v1/market/oi",
+        "/api/v1/market/change-oi",
+        "/api/v1/market/max-pain",
+    } <= paths.keys()
+
+
 def test_job_status_includes_graph_failures():
     job_id = str(uuid4())
     repo = AsyncMock()
@@ -86,7 +101,10 @@ def test_hourly_news_job_is_cron_minute_zero():
         "coalesce": True,
         "max_instances": 1,
     }
-    assert {j.id for j in scheduler.get_jobs()} == {"hourly_news", "daily_open", "daily_close"}
+    assert {j.id for j in scheduler.get_jobs()} == {
+        "hourly_news", "daily_equity_universe", "daily_open", "daily_close"
+    }
+    assert str(scheduler.get_job("daily_equity_universe").trigger) == "cron[hour='6', minute='0']"
 
 
 def test_resolver_uses_sql_catalog_new_stocks():
