@@ -1,11 +1,10 @@
 import React, { useEffect, useRef, useState } from 'react';
 import * as THREE from 'three';
-import { Play, RotateCcw, ShieldCheck, Zap } from 'lucide-react';
+import { ShieldCheck, Zap } from 'lucide-react';
 
 export const DualStore3DVisualizer: React.FC = () => {
   const mountRef = useRef<HTMLDivElement>(null);
   const [pulseActive, setPulseActive] = useState(false);
-  const [activeSide, setActiveSide] = useState<'both' | 'falkor' | 'timescale'>('both');
 
   const triggerPulseRef = useRef<() => void>(() => {});
 

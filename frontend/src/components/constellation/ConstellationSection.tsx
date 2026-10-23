@@ -34,7 +34,7 @@ export const ConstellationSection: React.FC<ConstellationSectionProps> = ({
   };
 
   return (
-    <section id="interactive-graph" className="relative w-full h-screen min-h-[720px] overflow-hidden bg-[#0b0c0e] border-y border-white/10 flex flex-col justify-between">
+    <section id="interactive-graph" className="relative w-full h-screen min-h-[720px] overflow-hidden bg-[#07090e] border-y border-white/10 flex flex-col justify-between">
       {/* Top Section Header */}
       <div className="relative z-20 px-6 pt-6 flex flex-col sm:flex-row sm:items-center justify-between gap-4 pointer-events-none">
         <div className="pointer-events-auto bg-ink-0/60 backdrop-blur-md p-3.5 rounded-2xl border border-white/10 max-w-md shadow-2xl">
@@ -53,7 +53,7 @@ export const ConstellationSection: React.FC<ConstellationSectionProps> = ({
         </div>
       </div>
 
-      {/* Floating Search Pill placed cleanly below the top header to prevent overlap */}
+      {/* Floating Center Search Pill */}
       <GraphSearchPill
         searchQuery={searchQuery}
         activeType={activeEntity?.type}
@@ -69,14 +69,6 @@ export const ConstellationSection: React.FC<ConstellationSectionProps> = ({
           setSearchQuery(id);
         }}
         onOpenDetailedView={onOpenDetailedView}
-      />
-
-      {/* Floating Search Pill at Top */}
-      <GraphSearchPill
-        searchQuery={searchQuery}
-        activeType={activeEntity?.type}
-        onSearchChange={handleSearchChange}
-        onClear={handleClearSearch}
       />
 
       {/* Bottom Floating Control Dock */}

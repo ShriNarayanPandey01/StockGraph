@@ -1,5 +1,5 @@
 import React from 'react';
-import { Database, Network, GitBranch, Clock, Cpu, Sparkles, Layers } from 'lucide-react';
+import { Database, Network, GitBranch, Clock, Cpu, Sparkles } from 'lucide-react';
 
 interface LoaderProps {
   label?: string;
