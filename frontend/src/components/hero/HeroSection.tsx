@@ -1,6 +1,7 @@
 import React from 'react';
 import { ArrowDown, Terminal, Sparkles } from 'lucide-react';
 import { NeonCircuitBackground } from './NeonCircuitBackground';
+import { WavyRocketCanvas } from './WavyRocketCanvas';
 
 interface HeroSectionProps {
   onSelectTicker: (ticker: string) => void;
@@ -13,8 +14,11 @@ export const HeroSection: React.FC<HeroSectionProps> = ({
 }) => {
   return (
     <section className="relative pt-16 pb-20 overflow-hidden border-b border-white/5">
-      {/* Subtle Hardware-Accelerated Neon LED Circuit Background */}
+      {/* 1. Subtle Hardware-Accelerated Neon LED Circuit Background */}
       <NeonCircuitBackground />
+
+      {/* 2. Motion Graphics: Character Sitting on a Rocket Flying in a Wavy Pattern (Bottom-Left to Top-Right) */}
+      <WavyRocketCanvas />
 
       <div className="max-w-6xl mx-auto px-4 sm:px-6 relative z-10 text-center">
         {/* Eyebrow Badge */}

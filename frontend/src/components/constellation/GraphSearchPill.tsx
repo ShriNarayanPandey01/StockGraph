@@ -15,8 +15,8 @@ export const GraphSearchPill: React.FC<GraphSearchPillProps> = ({
   onClear,
 }) => {
   return (
-    <div className="absolute top-6 inset-x-0 mx-auto w-full max-w-md px-4 z-20 pointer-events-auto">
-      <div className="glass-panel rounded-full px-4 py-2.5 shadow-2xl flex items-center justify-between gap-3 border border-white/15 bg-ink-1/90">
+    <div className="absolute top-28 sm:top-24 inset-x-0 mx-auto w-full max-w-md px-4 z-20 pointer-events-auto">
+      <div className="glass-panel rounded-full px-4 py-2.5 shadow-2xl flex items-center justify-between gap-3 border border-white/15 bg-ink-1/90 backdrop-blur-md">
         <div className="flex items-center gap-2 flex-1 min-w-0">
           <Search className="w-3.5 h-3.5 text-slate-400 shrink-0" />
           <span className="text-slate-400 text-xs font-mono hidden sm:inline">

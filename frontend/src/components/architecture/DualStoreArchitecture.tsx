@@ -1,13 +1,14 @@
 import React from 'react';
 import { Database, Network, Check } from 'lucide-react';
 import { FALKORDB_FEATURES, TIMESCALEDB_FEATURES } from '../../data/dualStoreData';
+import { DualStore3DVisualizer } from './DualStore3DVisualizer';
 import { InteractiveSqlGraphic } from './InteractiveSqlGraphic';
 
 export const DualStoreArchitecture: React.FC = () => {
   return (
     <section id="architecture" className="py-16 px-6 max-w-7xl mx-auto border-t border-white/5">
       <div className="glass-panel rounded-3xl p-6 sm:p-8 border border-white/10 bg-ink-1/80">
-        <div className="text-center max-w-2xl mx-auto mb-10">
+        <div className="text-center max-w-2xl mx-auto mb-8">
           <div className="text-xs font-mono text-sky-400 uppercase tracking-widest">
             Strict Dual-Store Separation
           </div>
@@ -18,6 +19,9 @@ export const DualStoreArchitecture: React.FC = () => {
             Rule 2 of our architectural invariant: Never store floating-point numeric series in graph node properties.
           </p>
         </div>
+
+        {/* Interactive Three.js 3D Dual-Store Architecture Visualizer */}
+        <DualStore3DVisualizer />
 
         <div className="grid grid-cols-1 md:grid-cols-2 gap-8 items-stretch">
           {/* Left: FalkorDB Graph */}
@@ -85,4 +89,3 @@ export const DualStoreArchitecture: React.FC = () => {
     </section>
   );
 };
-

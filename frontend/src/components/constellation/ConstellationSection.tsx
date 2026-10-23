@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { GraphEntity, GraphMode } from '../../types/graph';
+import { GraphEntity } from '../../types/graph';
 import { ConstellationCanvas } from './ConstellationCanvas';
 import { GraphSearchPill } from './GraphSearchPill';
 import { BottomDock } from './BottomDock';
@@ -18,7 +18,6 @@ export const ConstellationSection: React.FC<ConstellationSectionProps> = ({
   onSelectEntity,
   onOpenDetailedView,
 }) => {
-  const [graphMode, setGraphMode] = useState<GraphMode>('constellation');
   const [searchQuery, setSearchQuery] = useState(activeEntity?.id || '');
 
   const handleSearchChange = (val: string) => {
@@ -36,9 +35,9 @@ export const ConstellationSection: React.FC<ConstellationSectionProps> = ({
 
   return (
     <section id="interactive-graph" className="relative w-full h-screen min-h-[720px] overflow-hidden bg-[#0b0c0e] border-y border-white/10 flex flex-col justify-between">
-      {/* Top Floating Explorer Bar / Section Header */}
+      {/* Top Section Header */}
       <div className="relative z-20 px-6 pt-6 flex flex-col sm:flex-row sm:items-center justify-between gap-4 pointer-events-none">
-        <div className="pointer-events-auto bg-ink-0/60 backdrop-blur-md p-3 rounded-2xl border border-white/10 max-w-lg">
+        <div className="pointer-events-auto bg-ink-0/60 backdrop-blur-md p-3.5 rounded-2xl border border-white/10 max-w-md shadow-2xl">
           <div className="flex items-center gap-2 text-xs font-mono text-sky-400 uppercase tracking-widest">
             <Sparkles className="w-3.5 h-3.5 text-sky-400 animate-pulse" />
             <span>Full-Screen Celestial Explorer</span>
@@ -52,41 +51,15 @@ export const ConstellationSection: React.FC<ConstellationSectionProps> = ({
               : 'Hover or click any star to blossom its multi-hop second-order transmission graph.'}
           </p>
         </div>
-
-        {/* View Mode Controls */}
-        <div className="pointer-events-auto flex items-center gap-2 bg-ink-1/90 backdrop-blur-md border border-white/10 p-1.5 rounded-xl text-xs font-mono self-start sm:self-auto shadow-2xl">
-          <button
-            onClick={() => setGraphMode('constellation')}
-            className={`px-3 py-1.5 rounded-lg font-medium transition ${
-              graphMode === 'constellation'
-                ? 'bg-sky-500/20 text-sky-300 border border-sky-500/30'
-                : 'text-slate-400 hover:text-white'
-            }`}
-          >
-            Constellation
-          </button>
-          <button
-            onClick={() => setGraphMode('cluster')}
-            className={`px-3 py-1.5 rounded-lg font-medium transition ${
-              graphMode === 'cluster'
-                ? 'bg-sky-500/20 text-sky-300 border border-sky-500/30'
-                : 'text-slate-400 hover:text-white'
-            }`}
-          >
-            Radial Cluster
-          </button>
-          <button
-            onClick={() => setGraphMode('linear')}
-            className={`px-3 py-1.5 rounded-lg font-medium transition ${
-              graphMode === 'linear'
-                ? 'bg-sky-500/20 text-sky-300 border border-sky-500/30'
-                : 'text-slate-400 hover:text-white'
-            }`}
-          >
-            Linear Flow
-          </button>
-        </div>
       </div>
+
+      {/* Floating Search Pill placed cleanly below the top header to prevent overlap */}
+      <GraphSearchPill
+        searchQuery={searchQuery}
+        activeType={activeEntity?.type}
+        onSearchChange={handleSearchChange}
+        onClear={handleClearSearch}
+      />
 
       {/* Interactive Full-Screen Canvas */}
       <ConstellationCanvas
