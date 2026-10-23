@@ -1,0 +1,113 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  --color-ink-0: #0b0c0e;
+  --color-ink-1: #121316;
+  --color-ink-2: #1a1c20;
+}
+
+body {
+  background-color: var(--color-ink-0);
+  color: #f1f5f9;
+  font-family: 'Plus Jakarta Sans', -apple-system, BlinkMacSystemFont, sans-serif;
+  overflow-x: hidden;
+}
+
+.font-mono {
+  font-family: 'JetBrains Mono', monospace;
+}
+
+/* Glassmorphism panels */
+.glass-panel {
+  background: rgba(18, 19, 22, 0.78);
+  backdrop-filter: blur(16px);
+  -webkit-backdrop-filter: blur(16px);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+}
+
+.light .glass-panel {
+  background: rgba(255, 255, 255, 0.9);
+  border: 1px solid rgba(15, 23, 42, 0.08);
+}
+
+/* Glow effects matching detailed view & Kunumi style */
+.glow-aura {
+  box-shadow: 0 0 45px -10px rgba(56, 189, 248, 0.28);
+}
+
+.halo-orange {
+  box-shadow: 0 0 50px -5px rgba(249, 115, 22, 0.35);
+}
+
+.halo-purple {
+  box-shadow: 0 0 50px -5px rgba(168, 85, 247, 0.35);
+}
+
+.halo-emerald {
+  box-shadow: 0 0 50px -5px rgba(16, 185, 129, 0.35);
+}
+
+/* Subtle tech grid background */
+.tech-grid {
+  background-size: 32px 32px;
+  background-image: 
+    linear-gradient(to right, rgba(255, 255, 255, 0.03) 1px, transparent 1px),
+    linear-gradient(to bottom, rgba(255, 255, 255, 0.03) 1px, transparent 1px);
+}
+
+.light .tech-grid {
+  background-image: 
+    linear-gradient(to right, rgba(15, 23, 42, 0.04) 1px, transparent 1px),
+    linear-gradient(to bottom, rgba(15, 23, 42, 0.04) 1px, transparent 1px);
+}
+
+/* Custom sleek scrollbar */
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+::-webkit-scrollbar-thumb {
+  background: rgba(148, 163, 184, 0.25);
+  border-radius: 9999px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: rgba(148, 163, 184, 0.45);
+}
+
+/* Modern Cyberpunk & Fintech Motion Graphic Animations */
+@keyframes floatSlow1 {
+  0%, 100% {
+    transform: translateZ(35px) translateY(0px) rotate(0deg);
+  }
+  50% {
+    transform: translateZ(35px) translateY(-10px) rotate(-0.5deg);
+  }
+}
+
+@keyframes floatSlow2 {
+  0%, 100% {
+    transform: translateZ(45px) translateY(0px) rotate(0deg);
+  }
+  50% {
+    transform: translateZ(45px) translateY(-12px) rotate(0.6deg);
+  }
+}
+
+@keyframes floatSlow3 {
+  0%, 100% {
+    transform: translateZ(25px) translateY(0px) rotate(0deg);
+  }
+  50% {
+    transform: translateZ(25px) translateY(-8px) rotate(-0.4deg);
+  }
+}
+
+
