@@ -2,6 +2,13 @@
 
 > **Current deployment architecture:** Read [docs/04_SERVICE_BOUNDARIES.md](docs/04_SERVICE_BOUNDARIES.md) first. It supersedes the legacy single-service layout, combined dossier, selective macro baseline, YAML runtime registry, and 30-minute news cadence below. Production services are `services/upstox/` (SQL/source ingestion) and `services/stockgraph/` (FalkorDB/LLM), with hourly news and API registration.
 
+> **Phase 1 platform extension:** [docs/PHASE1_PLATFORM.md](docs/PHASE1_PLATFORM.md)
+> adds `services/platform/` with its own ordinary PostgreSQL database on the same
+> server. All implemented features are free, including professional evidence.
+> RBAC and Pine Labs payment integration are Phase 2; keep authentication,
+> ownership, independent review and operating budgets active. External agents
+> consume REST/MCP APIs. The Data/Graph ownership and FalkorDB vector rules remain.
+
 > **CRITICAL FOR AI CODING AGENTS (Cursor / Claude Code / Windsurf):**
 > Before writing, refactoring, or planning any code, read this file completely and consult the linked specification files in `/docs/`. Never violate the Architectural Invariants in Section 3.
 

@@ -1,0 +1,31 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Stock connections · MarketGraph</title>
+  <link rel="icon" href="/connections/assets/mark.svg" type="image/svg+xml">
+  <link rel="stylesheet" href="/connections/assets/explorer.css">
+  <script src="/connections/assets/explorer.js" defer></script>
+</head>
+<body>
+  <header><a class="brand" href="/connections">MARKETGRAPH<span>RESEARCH WORKSPACE</span></a><span class="release">Free access · Phase 1</span></header>
+  <main>
+    <section class="intro"><p class="eyebrow">FOLLOW THE EVIDENCE</p><h1>Every stock has a story.<br>Explore its connections.</h1><p class="lede">Trace the companies, market drivers and events connected to a stock. Inspect the relationship and the evidence behind it.</p></section>
+    <form id="query-form" class="query-panel" aria-label="Load stock connections">
+      <div><label for="ticker">Registered stock symbol</label><input id="ticker" name="ticker" required maxlength="40" placeholder="e.g. RELIANCE" autocomplete="off" spellcheck="false"></div>
+      <div><label for="window">Research window</label><select id="window" name="window"><option value="LAST_6M">Last 6 months</option><option value="LAST_1Y">Last year</option></select></div>
+      <div class="credential"><label for="token">Your access token</label><input id="token" type="password" required autocomplete="off" placeholder="Issued by your platform operator"><small>Kept in this page only. Never saved in browser storage.</small></div>
+      <button id="submit" type="submit">Explore connections <span aria-hidden="true">↗</span></button>
+    </form>
+    <div id="status" role="status" aria-live="polite">Enter a registered stock to explore its evidence.</div>
+    <section id="results" hidden aria-label="Stock connections">
+      <div class="section-title"><div><p class="eyebrow" id="stock-label"></p><h2>Connected evidence</h2></div><p id="snapshot"></p></div>
+      <div class="toolbar"><label for="kind">Connection type</label><select id="kind"><option value="all">All connections</option><option value="Stock">Stocks</option><option value="NewsEvent">News &amp; events</option><option value="Commodity">Commodities</option><option value="MacroFactor">Macro factors</option><option value="Sector">Sectors</option><option value="ProfessionalEvidence">Professional views</option></select><span id="count"></span></div>
+      <div id="connections" class="connections"></div>
+      <button id="more" type="button" hidden>Load more connections</button>
+    </section>
+    <section class="reading-note"><h2>Read the relationship, then the source.</h2><p>A graph connection describes a relationship or an inferred impact. Confidence describes the extraction, not the probability of a price move. Professional views carry more weight alongside conflicting evidence, and remain available to everyone during Phase 1.</p></section>
+  </main>
+  <footer><span>MarketGraph / Stock Connections Explorer</span><a href="/docs">API documentation</a></footer>
+</body>
+</html>

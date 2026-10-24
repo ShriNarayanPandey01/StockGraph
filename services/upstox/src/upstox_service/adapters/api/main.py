@@ -8,6 +8,7 @@ from uuid import UUID
 from fastapi import FastAPI, HTTPException
 from redis.asyncio import Redis
 
+from upstox_service.adapters.api.document_routes import build_document_router
 from upstox_service.adapters.api.market_routes import create_market_router
 from upstox_service.adapters.api.stock_routes import create_stock_router
 from upstox_service.adapters.providers.news.adapters import (
@@ -19,9 +20,10 @@ from upstox_service.adapters.providers.upstox.client import UpstoxClient
 from upstox_service.adapters.providers.upstox.market import UpstoxMarketProvider
 from upstox_service.adapters.providers.upstox.stock_data import UpstoxStockDataProvider
 from upstox_service.adapters.repositories.timescale.catalog import DataRepository
+from upstox_service.adapters.repositories.timescale.documents import DocumentRepository
 from upstox_service.adapters.repositories.timescale.stock_data import init_stock_data_schema
-from upstox_service.config.settings import Settings
 from upstox_service.application.ingestion.news_eligibility import NewsEligibilityGate
+from upstox_service.config.settings import Settings
 from upstox_service.domain.entities import NewsArticle
 from upstox_service.domain.enums import Window
 from upstox_service.domain.models import EntityInput, EntityKind, ManualNewsInput, StockRegistration
@@ -45,6 +47,7 @@ def create_app(repository=None, redis_client=None, config: Settings | None = Non
             if owned_repository:
                 await repository.init_schema()
                 await init_stock_data_schema(repository)
+                await DocumentRepository(repository).init_schema()
                 await repository.bootstrap()
             yield
         finally:
@@ -58,6 +61,7 @@ def create_app(repository=None, redis_client=None, config: Settings | None = Non
 
     app = FastAPI(title="Upstox / Market Data Service", version="1.0.0", lifespan=lifespan)
     app.include_router(create_stock_router(repository, stock_provider, redis_client, config))
+    app.include_router(build_document_router(repository, redis_client, config))
     app.include_router(create_market_router(
         UpstoxMarketProvider(v2_client), redis_client,
         live_ttl_seconds=config.market_live_cache_ttl_seconds,

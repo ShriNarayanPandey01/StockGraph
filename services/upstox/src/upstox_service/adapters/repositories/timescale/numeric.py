@@ -254,9 +254,10 @@ class TimescaleRepository:
             self._pool = None
 
     async def init_schema(self) -> None:
+        from upstox_service.adapters.repositories.timescale.migrations import apply_migration
         pool = await self.connect()
         async with pool.acquire() as conn:
-            await conn.execute(DDL_SCHEMA)
+            await apply_migration(conn,"001_numeric",DDL_SCHEMA)
 
     @staticmethod
     def window_dates(window: Window, today: date | None = None) -> tuple[date, date]:
@@ -303,6 +304,22 @@ class TimescaleRepository:
         pool = await self.connect()
         async with pool.acquire() as conn:
             return await conn.fetch(MONTHLY_AGGREGATES_QUERY, ticker, start, end)
+
+    async def missing_checkpoint_dates(
+        self, ticker: str, session: str, start: date, end: date
+    ) -> list[date]:
+        pool = await self.connect()
+        async with pool.acquire() as conn:
+            rows = await conn.fetch(
+                "SELECT d::date AS trade_date FROM generate_series($3::date,$4::date,interval '1 day') d "
+                "WHERE extract(isodow FROM d)<6 AND NOT EXISTS(SELECT 1 FROM daily_stock_metrics m "
+                "WHERE m.ticker=$1 AND m.session_type=$2 AND m.trade_date=d::date) ORDER BY d",
+                ticker,
+                session,
+                start,
+                end,
+            )
+        return [row["trade_date"] for row in rows]
 
     async def get_watermark(self, vendor_id: str, ticker: str, series: str) -> date | None:
         """Last trade_date pushed for a vendor series (Rule 7 backfill)."""
@@ -352,7 +369,9 @@ class TimescaleRepository:
             await conn.execute(
                 "INSERT INTO vendor_quotes_raw "
                 "(vendor_id, ticker, trade_date, series, payload, fetched_at) "
-                "VALUES ($1, $2, $3, $4, $5::jsonb, $6) "
+                "SELECT $1, $2, $3, $4, $5::jsonb, $6 WHERE $5::jsonb IS DISTINCT FROM "
+                "(SELECT payload FROM vendor_quotes_raw WHERE vendor_id=$1 AND ticker=$2 "
+                "AND trade_date=$3 AND series=$4 ORDER BY fetched_at DESC LIMIT 1) "
                 "ON CONFLICT (vendor_id, ticker, trade_date, series, fetched_at) DO NOTHING",
                 vendor_id,
                 ticker.upper(),

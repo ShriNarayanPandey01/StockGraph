@@ -1,6 +1,7 @@
 """Runs SQL registration jobs and committed outbox publication, separately from API."""
 
 import asyncio
+import logging
 
 from redis.asyncio import Redis
 
@@ -8,6 +9,7 @@ from upstox_service.adapters.messaging import RedisPublisher
 from upstox_service.adapters.providers.upstox.client import UpstoxClient
 from upstox_service.adapters.providers.upstox.company import UpstoxCompanyProvider
 from upstox_service.adapters.repositories.timescale.catalog import DataRepository
+from upstox_service.adapters.repositories.timescale.documents import DocumentRepository
 from upstox_service.application.stock_registration import RegistrationWorker
 from upstox_service.config.settings import Settings
 
@@ -30,12 +32,19 @@ async def run():
         lease_seconds=config.job_lease_seconds,
     )
     await repository.init_schema()
+    documents = DocumentRepository(repository)
+    await documents.init_schema()
     await repository.bootstrap()
     try:
         while True:
-            await repository.publish_outbox(publisher)
-            worked = await worker.run_once()
-            if not worked:
+            try:
+                await repository.publish_outbox(publisher)
+                await documents.publish_outbox(redis)
+                worked = await worker.run_once()
+                if not worked:
+                    await asyncio.sleep(1)
+            except Exception:
+                logging.error("Source worker stage unavailable; committed jobs and outboxes remain retryable")
                 await asyncio.sleep(1)
     finally:
         await client.close()

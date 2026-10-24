@@ -112,17 +112,13 @@ class NewsCorrelator:
         """Fetch candidates, judge pairs, persist links. Returns kept links."""
         try:
             if embedding is not None:
-                try:
-                    candidates = repo.find_correlation_candidates(
-                        news_id, now_ts, embedding=embedding
-                    )
-                except TypeError:
-                    candidates = repo.find_correlation_candidates(news_id, now_ts)
+                candidates = repo.find_correlation_candidates(news_id, now_ts, embedding=embedding)
             else:
                 candidates = repo.find_correlation_candidates(news_id, now_ts)
         except Exception as exc:
-            logger.warning("L4 candidate fetch failed for %s: %s", news_id, exc)
-            return []
+            # A failed read is not an empty successful candidate set. The event
+            # remains pending and can retry without refetching metered providers.
+            raise RuntimeError("News correlation candidate query failed") from exc
         rows = [self._row_to_dict(r) for r in candidates or []]
         rows = [r for r in rows if r.get("id") and r["id"] != news_id]
         # Only market-relevant stories may be correlated (see

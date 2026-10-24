@@ -29,6 +29,14 @@ CLEAR_MARKET_EVENT_PATTERNS = (
     r"\b(?:trading|trade)\s+volume\b",
 )
 
+# Financial materiality takes precedence over incidental sector vocabulary.
+MATERIAL_FINANCIAL_EVENT = re.compile(
+    r"\b(?:quarterly|earnings|profits?|revenues?|ebitda|dividends?|buybacks?|"
+    r"shareholders?|acquisitions?|mergers?|ipo|debt|default|insolvency|"
+    r"regulatory filing|reg[ -]?30|financial results)\b",
+    re.IGNORECASE,
+)
+
 HARD_REJECTION_PATTERNS: tuple[tuple[str, tuple[str, ...]], ...] = (
     (
         "SPORTS",
@@ -78,6 +86,8 @@ class NewsEligibilityVerdict(BaseModel):
 
 def hard_rejection_reason(headline: str, summary: str = "") -> str | None:
     text = f"{headline}\n{summary}"
+    if MATERIAL_FINANCIAL_EVENT.search(text):
+        return None
     for reason, patterns in HARD_REJECTION_PATTERNS:
         if any(re.search(pattern, text, flags=re.IGNORECASE) for pattern in patterns):
             return reason
@@ -118,10 +128,16 @@ class GraphNewsEligibilityReviewer:
 
     def review(self, request: NewsEligibilityRequest) -> NewsEligibilityVerdict:
         hard_reason = hard_rejection_reason(request.headline, request.summary)
-        if hard_reason:
+        if hard_reason and request.preliminary_category is not NewsCategory.REG30:
             return NewsEligibilityVerdict(eligible=False, reason=hard_reason)
+        if request.preliminary_category is NewsCategory.REG30:
+            return NewsEligibilityVerdict(
+                eligible=True, category=NewsCategory.REG30, reason="REG30_DISCLOSURE"
+            )
         text = f"{request.headline}\n{request.summary}"
-        if any(re.search(pattern, text, flags=re.IGNORECASE) for pattern in CLEAR_MARKET_EVENT_PATTERNS):
+        if any(
+            re.search(pattern, text, flags=re.IGNORECASE) for pattern in CLEAR_MARKET_EVENT_PATTERNS
+        ):
             return NewsEligibilityVerdict(
                 eligible=True,
                 category=NewsCategory.SECTOR_UPDATE,
@@ -136,7 +152,9 @@ class GraphNewsEligibilityReviewer:
             if not isinstance(verdict, NewsEligibilityVerdict):
                 raise ValueError("LLM did not return an eligibility verdict")
             if not verdict.eligible or verdict.category not in APPROVED_CATEGORIES:
-                return NewsEligibilityVerdict(eligible=False, reason=verdict.reason or "LLM_REJECTED")
+                return NewsEligibilityVerdict(
+                    eligible=False, reason=verdict.reason or "LLM_REJECTED"
+                )
             return verdict
         except Exception:
             # The upstream gate must never mistake an unavailable reviewer for

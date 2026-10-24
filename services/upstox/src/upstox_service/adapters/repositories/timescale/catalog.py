@@ -13,6 +13,7 @@ from uuid import UUID, uuid4
 import yaml
 
 from upstox_service.adapters.repositories.timescale.numeric import TimescaleRepository
+from upstox_service.application.financial_context import normalize_statements
 from upstox_service.domain.models import CompanyBundle, EntityKind, StockRegistration, event
 
 CATALOG_DDL = """
@@ -40,6 +41,10 @@ CREATE TABLE IF NOT EXISTS stock_fundamentals_raw (
  ticker text NOT NULL, series text NOT NULL, payload jsonb NOT NULL,
  vendor_id text NOT NULL, vendor_as_of timestamptz NOT NULL,
  PRIMARY KEY(ticker,series,vendor_as_of));
+CREATE TABLE IF NOT EXISTS pending_news_reviews (
+ provider_id text NOT NULL, external_id text NOT NULL, payload jsonb NOT NULL,
+ published_at timestamptz, source_url text, updated_at timestamptz NOT NULL DEFAULT now(),
+ PRIMARY KEY(provider_id, external_id));
 CREATE TABLE IF NOT EXISTS normalized_news (
  provider_id text NOT NULL, external_id text NOT NULL, revision bigint NOT NULL,
  content_hash text NOT NULL, article jsonb NOT NULL, committed_at timestamptz NOT NULL DEFAULT now(),
@@ -85,10 +90,10 @@ def merge_company_profile(existing: dict, incoming: dict) -> dict:
 
 class DataRepository(TimescaleRepository):
     async def init_schema(self) -> None:
-        await super().init_schema()
+        from upstox_service.adapters.repositories.timescale.migrations import migrate_data_store
         pool = await self.connect()
         async with pool.acquire() as conn:
-            await conn.execute(CATALOG_DDL)
+            await migrate_data_store(conn)
 
     async def bootstrap(self, seed: dict | None = None) -> int:
         if seed is None:
@@ -317,6 +322,14 @@ class DataRepository(TimescaleRepository):
                     json.dumps(payload, default=str),
                     now,
                 )
+            for normalized in normalize_statements(ticker, bundle.statements, "UPSTOX", now):
+                columns = tuple(normalized)
+                placeholders = ",".join(f"${index}" for index in range(1, len(columns) + 1))
+                await conn.execute(
+                    f"INSERT INTO quarterly_financials ({','.join(columns)}) VALUES ({placeholders}) "
+                    "ON CONFLICT(ticker,quarter_label,valid_from_ts) DO NOTHING",
+                    *(normalized[column] for column in columns),
+                )
             if bundle.checkpoint:
                 p = bundle.checkpoint
                 await conn.execute(
@@ -328,7 +341,7 @@ class DataRepository(TimescaleRepository):
                     now,
                 )
                 await conn.execute(
-                    "INSERT INTO daily_stock_metrics(trade_date,session_type,ticker,open_price,high_price,low_price,close_price,volume,vendor_id,vendor_as_of) VALUES($1,$2,$3,$4,$5,$6,$7,$8,'UPSTOX',$9) ON CONFLICT(trade_date,session_type,ticker) DO UPDATE SET open_price=EXCLUDED.open_price,high_price=EXCLUDED.high_price,low_price=EXCLUDED.low_price,close_price=EXCLUDED.close_price,volume=EXCLUDED.volume,vendor_as_of=EXCLUDED.vendor_as_of",
+                    "INSERT INTO daily_stock_metrics(trade_date,session_type,ticker,open_price,high_price,low_price,close_price,volume,vendor_id,vendor_as_of) VALUES($1,$2,$3,$4,$5,$6,$7,$8,'UPSTOX',$9) ON CONFLICT(trade_date,session_type,ticker) DO UPDATE SET open_price=EXCLUDED.open_price,high_price=EXCLUDED.high_price,low_price=EXCLUDED.low_price,close_price=EXCLUDED.close_price,volume=EXCLUDED.volume,vendor_id=EXCLUDED.vendor_id,vendor_as_of=EXCLUDED.vendor_as_of",
                     p["trade_date"],
                     p["session_type"],
                     ticker,
@@ -361,12 +374,22 @@ class DataRepository(TimescaleRepository):
                     raw.source_url,
                     json.dumps(raw.payload, default=str),
                 )
+                if raw.external_id not in result.approvals:
+                    await conn.execute(
+                        "INSERT INTO pending_news_reviews(provider_id,external_id,payload,published_at,source_url) "
+                        "VALUES($1,$2,$3::jsonb,$4,$5) ON CONFLICT(provider_id,external_id) "
+                        "DO UPDATE SET payload=EXCLUDED.payload,published_at=EXCLUDED.published_at,"
+                        "source_url=EXCLUDED.source_url,updated_at=now()",
+                        result.provider_id,
+                        raw.external_id,
+                        json.dumps(raw.payload, default=str),
+                        raw.published_at,
+                        raw.source_url,
+                    )
             for article in result.articles:
                 approval = result.approvals.get(article.external_id)
                 if approval is None:
-                    raise ValueError(
-                        "Refusing to persist news without an eligibility approval"
-                    )
+                    raise ValueError("Refusing to persist news without an eligibility approval")
                 approval_source, approval_reason = approval
                 payload = {
                     "external_id": article.external_id,
@@ -425,6 +448,33 @@ class DataRepository(TimescaleRepository):
                 )
         return count
 
+    async def pending_news_reviews(self, limit: int = 100) -> list[dict]:
+        pool = await self.connect()
+        async with pool.acquire() as conn:
+            rows = await conn.fetch(
+                "SELECT provider_id,external_id,payload FROM pending_news_reviews ORDER BY updated_at LIMIT $1",
+                limit,
+            )
+        return [{**dict(row), "payload": json_value(row["payload"])} for row in rows]
+
+    async def defer_news_review(self, provider_id: str, external_id: str) -> None:
+        pool = await self.connect()
+        async with pool.acquire() as conn:
+            await conn.execute(
+                "UPDATE pending_news_reviews SET updated_at=now() WHERE provider_id=$1 AND external_id=$2",
+                provider_id,
+                external_id,
+            )
+
+    async def finish_news_review(self, provider_id: str, external_id: str) -> None:
+        pool = await self.connect()
+        async with pool.acquire() as conn:
+            await conn.execute(
+                "DELETE FROM pending_news_reviews WHERE provider_id=$1 AND external_id=$2",
+                provider_id,
+                external_id,
+            )
+
     async def publish_outbox(self, publisher: Any, limit: int = 100) -> int:
         """Mark after XADD. Crash after XADD causes safe redelivery, never lost events."""
         pool = await self.connect()
@@ -465,9 +515,19 @@ class DataRepository(TimescaleRepository):
                 "SELECT DISTINCT ON (series) series,payload,vendor_id,vendor_as_of FROM stock_fundamentals_raw WHERE ticker=$1 ORDER BY series,vendor_as_of DESC",
                 ticker,
             )
+            quarterly = await conn.fetch(
+                "SELECT DISTINCT ON (quarter_label) * FROM quarterly_financials "
+                "WHERE ticker=$1 AND published_date BETWEEN $2 AND $3 "
+                "AND valid_from_ts<=$4 ORDER BY quarter_label,valid_from_ts DESC",
+                ticker,
+                start,
+                end,
+                int(datetime.now(UTC).timestamp()),
+            )
         return {
             "ticker": ticker,
             "window": window.value,
+            "quarterly_financials": [dict(row) for row in quarterly],
             "start_date": start,
             "end_date": end,
             "daily_metrics": [dict(row) for row in rows],

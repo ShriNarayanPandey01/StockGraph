@@ -10,6 +10,7 @@ from typing import Any
 from uuid import uuid4
 
 from stockgraph.adapters.repositories.falkor.legacy_repository import FalkorGraphRAGRepository
+from stockgraph.adapters.repositories.falkor.news_reconciliation import NewsReconciliation
 from stockgraph.runtime.settings import settings
 
 KINDS = {"Stock": "ticker", "Commodity": "id", "MacroFactor": "id", "Sector": "id"}
@@ -56,7 +57,11 @@ def public_props(props: dict) -> dict:
     }
 
 
-class GraphRepository(FalkorGraphRAGRepository):
+class GraphRepository(NewsReconciliation, FalkorGraphRAGRepository):
+    def professional_page(self, ticker, start, end, offset=0, limit=50):
+        from stockgraph.adapters.repositories.falkor.professional import EvidenceRepository
+        return EvidenceRepository(self).professional_page(ticker, start, end, offset, limit)
+
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
         self._write_guard = None
@@ -417,3 +422,110 @@ class GraphRepository(FalkorGraphRAGRepository):
             params,
         )
         return {"ontology": ontology, "direct": direct, "indirect": indirect}
+
+    def public_market_graph_data(self, start_ts: int, end_ts: int) -> dict[str, list[dict]]:
+        """Read the bounded source rows used to compose the public market preview.
+
+        This deliberately returns only public-market labels and relationship types.
+        The application service decides the final compact connected subgraph, keeping
+        the database queries simple and the visual-selection policy testable.
+        """
+        params = {
+            "start": start_ts,
+            "end": end_ts,
+            "confidence": settings.ontology_min_confidence,
+        }
+        temporal = (
+            "coalesce(r.valid_from_ts,0)<=$end AND "
+            "coalesce(r.valid_to_ts,9999999999)>=$start"
+        )
+        candidates = self._run(
+            "MATCH (s:Stock) "
+            "OPTIONAL MATCH (n:NewsEvent)-[impact:DIRECTLY_IMPACTS|INDIRECTLY_IMPACTS]->(s) "
+            "WHERE n.event_ts >= $start AND n.event_ts <= $end "
+            "AND coalesce(impact.confidence,0) >= $confidence "
+            "AND NOT (n)-[:DUPLICATE_OF]->() "
+            "OPTIONAL MATCH (s)-[ontology:EXPOSED_TO|SENSITIVE_TO_MACRO|BELONGS_TO|SUPPLIES_TO|COMPETES_WITH]->() "
+            "WHERE coalesce(ontology.valid_from_ts,0)<=$end AND "
+            "coalesce(ontology.valid_to_ts,9999999999)>=$start "
+            "AND coalesce(ontology.confidence,0) >= $confidence "
+            "AND NOT (type(ontology)='SENSITIVE_TO_MACRO' AND coalesce(ontology.baseline,false)) "
+            "RETURN properties(s), count(DISTINCT n), count(DISTINCT ontology) "
+            "ORDER BY count(DISTINCT n) DESC, count(DISTINCT ontology) DESC, s.ticker ASC LIMIT 200",
+            params,
+        )
+        ontology = self._run(
+            "MATCH (s:Stock)-[r:EXPOSED_TO|SENSITIVE_TO_MACRO|BELONGS_TO|SUPPLIES_TO|COMPETES_WITH]->(t) "
+            f"WHERE {temporal} AND coalesce(r.confidence,0) >= $confidence "
+            "AND NOT (type(r)='SENSITIVE_TO_MACRO' AND coalesce(r.baseline,false)) "
+            "AND (t:Stock OR t:Commodity OR t:MacroFactor OR t:Sector) "
+            "RETURN properties(s), labels(t)[0], properties(t), type(r), properties(r) LIMIT 600",
+            params,
+        )
+        impacts = self._run(
+            "MATCH (n:NewsEvent)-[r:DIRECTLY_IMPACTS|INDIRECTLY_IMPACTS]->(s:Stock) "
+            "WHERE n.event_ts >= $start AND n.event_ts <= $end "
+            "AND coalesce(r.confidence,0) >= $confidence AND NOT (n)-[:DUPLICATE_OF]->() "
+            "RETURN properties(n), properties(s), type(r), properties(r) "
+            "ORDER BY n.event_ts DESC, n.id ASC LIMIT 600",
+            params,
+        )
+        shocks = self._run(
+            "MATCH (n:NewsEvent)-[r:SHOCKS|ALTERS_MACRO|IMPACTS_SECTOR]->(t) "
+            "WHERE n.event_ts >= $start AND n.event_ts <= $end "
+            "AND coalesce(r.confidence,0) >= $confidence AND NOT (n)-[:DUPLICATE_OF]->() "
+            "AND (t:Commodity OR t:MacroFactor OR t:Sector) "
+            "RETURN properties(n), labels(t)[0], properties(t), type(r), properties(r) "
+            "ORDER BY n.event_ts DESC, n.id ASC LIMIT 600",
+            params,
+        )
+        correlations = self._run(
+            "MATCH (newer:NewsEvent)-[r:CORRELATED_WITH]->(older:NewsEvent) "
+            "WHERE newer.event_ts >= $start AND newer.event_ts <= $end "
+            "AND older.event_ts >= $start AND older.event_ts <= $end "
+            "AND NOT (newer)-[:DUPLICATE_OF]->() AND NOT (older)-[:DUPLICATE_OF]->() "
+            "RETURN properties(newer), properties(older), properties(r) "
+            "ORDER BY newer.event_ts DESC, newer.id ASC LIMIT 300",
+            params,
+        )
+        related = self._run(
+            "MATCH (source:Commodity)-[r:RELATED_TO]->(target:Commodity) "
+            "RETURN properties(source), properties(target), properties(r) LIMIT 200",
+            {},
+        )
+
+        def props(value: Any) -> dict:
+            return dict(value or {})
+
+        return {
+            "candidates": [
+                {"stock": props(row[0]), "news_count": int(row[1]), "ontology_count": int(row[2])}
+                for row in candidates
+            ],
+            "ontology": [
+                {
+                    "source": props(row[0]), "target_kind": row[1], "target": props(row[2]),
+                    "relation": row[3], "properties": props(row[4]),
+                }
+                for row in ontology
+            ],
+            "impacts": [
+                {"news": props(row[0]), "stock": props(row[1]), "relation": row[2], "properties": props(row[3])}
+                for row in impacts
+            ],
+            "shocks": [
+                {
+                    "news": props(row[0]), "target_kind": row[1], "target": props(row[2]),
+                    "relation": row[3], "properties": props(row[4]),
+                }
+                for row in shocks
+            ],
+            "correlations": [
+                {"source": props(row[0]), "target": props(row[1]), "properties": props(row[2])}
+                for row in correlations
+            ],
+            "related": [
+                {"source": props(row[0]), "target": props(row[1]), "properties": props(row[2])}
+                for row in related
+            ],
+        }

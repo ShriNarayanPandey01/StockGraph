@@ -9,12 +9,16 @@ from __future__ import annotations
 
 import argparse
 import asyncio
+import hashlib
 import io
 import json
+import os
+import re
 from datetime import UTC, datetime
 from fnmatch import fnmatch
 from pathlib import Path
 from urllib.parse import urlsplit
+from uuid import uuid4
 from zipfile import ZIP_DEFLATED, ZipFile
 
 import asyncpg
@@ -40,15 +44,20 @@ TABLES = (
     "graph_outbox",
     "stock_fundamentals_raw",
     "normalized_news",
+    "pending_news_reviews",
     "equity_instruments",
     "equity_universe_refresh",
     "stock_company_profiles",
     "stock_company_profile_versions",
     "stock_shareholding_versions",
+    "stock_shareholding_snapshots",
     "stock_shareholding_sync",
     "stock_daily_candles_raw",
     "stock_daily_candles",
     "stock_daily_candle_fetches",
+    "source_documents",
+    "source_document_versions",
+    "document_outbox",
 )
 # Preserve provider quota/degraded-provider and LLM spend/cache ledgers. The
 # scheduler store is removed only after writers have been explicitly stopped.
@@ -99,6 +108,7 @@ async def backup(settings: ProjectDataSettings, directory: Path) -> Path:
         "graph": "stock_graph",
         "tables": {},
         "redis": [],
+        "documents": {},
     }
     sql = await asyncpg.connect(settings.timescale_dsn)
     graph = redis.Redis(host=settings.falkor_host, port=settings.falkor_port)
@@ -123,6 +133,15 @@ async def backup(settings: ProjectDataSettings, directory: Path) -> Path:
                         "columns": [r["column_name"] for r in columns],
                         "rows": await sql.fetchval(f'SELECT count(*) FROM public."{table}"'),
                     }
+                if "source_document_versions" in manifest["tables"]:
+                    originals = await sql.fetch(
+                        "SELECT DISTINCT content_hash FROM source_document_versions"
+                    )
+                    for row in originals:
+                        digest = row["content_hash"]
+                        body = read_original(settings, digest)
+                        archive.writestr(f"documents/{digest}", body)
+                        manifest["documents"][digest] = {"sha256": digest, "bytes": len(body)}
             graph_value = graph.dump("stock_graph")
             manifest["graph_present"] = graph_value is not None
             if graph_value is not None:
@@ -157,8 +176,40 @@ async def backup(settings: ProjectDataSettings, directory: Path) -> Path:
         cache.close()
 
 
+async def ensure_standalone_reset_safe(settings: ProjectDataSettings) -> None:
+    from scripts.platform_data import TABLES as PLATFORM_TABLES
+    from scripts.platform_data import validate_target
+
+    dsn = settings.platform_database_dsn.get_secret_value()
+    validate_target(dsn)
+    try:
+        platform = await asyncpg.connect(dsn)
+    except asyncpg.InvalidCatalogNameError:
+        return  # Phase 1 platform has not been initialized on this server.
+    except Exception:
+        raise ValueError("Cannot verify Platform state; standalone Data reset is blocked") from None
+    try:
+        independent = {
+            "platform_users",
+            "platform_tokens",
+            "platform_usage",
+            "platform_request_buckets",
+        }
+        for table in PLATFORM_TABLES:
+            if table in independent:
+                continue
+            exists = await platform.fetchval("SELECT to_regclass($1)", f"public.{table}")
+            if exists and await platform.fetchval(f'SELECT EXISTS(SELECT 1 FROM public."{table}")'):
+                raise ValueError(
+                    "Back up and restore both stores together; standalone Data reset would invalidate Platform evidence"
+                )
+    finally:
+        await platform.close()
+
+
 async def reset(settings: ProjectDataSettings) -> None:
     validate_targets(settings)
+    await ensure_standalone_reset_safe(settings)
     sql = await asyncpg.connect(settings.timescale_dsn)
     graph = redis.Redis(host=settings.falkor_host, port=settings.falkor_port)
     cache = redis.Redis.from_url(settings.redis_url)
@@ -204,6 +255,8 @@ async def restore(settings: ProjectDataSettings, path: Path) -> None:
         ):
             raise ValueError("Not a project backup")
         validate_archive(archive, manifest)
+        validate_document_targets(settings, archive, manifest)
+        install_originals(settings, archive, manifest)
         sql = await asyncpg.connect(settings.timescale_dsn)
         graph = redis.Redis(host=settings.falkor_host, port=settings.falkor_port)
         cache = redis.Redis.from_url(settings.redis_url)
@@ -246,6 +299,55 @@ async def restore(settings: ProjectDataSettings, path: Path) -> None:
     print("Restored project backup; verify graph and service status before resuming writers.")
 
 
+def _original_path(settings, digest: str) -> Path:
+    if not isinstance(digest, str) or not re.fullmatch(r"[a-f0-9]{64}", digest):
+        raise ValueError("Invalid source document content hash")
+    root = Path(settings.document_storage_root).resolve()
+    target = root / digest
+    if target.is_symlink() or target.resolve().parent != root:
+        raise ValueError("Source document path escapes configured storage")
+    return target
+
+
+def read_original(settings, digest: str) -> bytes:
+    body = _original_path(settings, digest).read_bytes()
+    if hashlib.sha256(body).hexdigest() != digest:
+        raise ValueError("Source document original checksum mismatch")
+    return body
+
+
+def validate_document_targets(settings, archive, manifest):
+    for digest in manifest.get("documents", {}):
+        target = _original_path(settings, digest)
+        if target.exists() and read_original(settings, digest) != archive.read(
+            f"documents/{digest}"
+        ):
+            raise ValueError("Existing document original conflicts with backup")
+
+
+def install_originals(settings, archive, manifest):
+    # Immutable originals can be safely installed before SQL. A later SQL error
+    # may leave an unreferenced original, never an overwritten or partial one.
+    for digest in manifest.get("documents", {}):
+        target = _original_path(settings, digest)
+        if target.exists():
+            read_original(settings, digest)
+            continue
+        target.parent.mkdir(parents=True, exist_ok=True)
+        temporary = target.parent / f".restore-{uuid4().hex}"
+        try:
+            with temporary.open("xb") as stream:
+                stream.write(archive.read(f"documents/{digest}"))
+                stream.flush()
+                os.fsync(stream.fileno())
+            try:
+                os.link(temporary, target)
+            except FileExistsError:
+                read_original(settings, digest)
+        finally:
+            temporary.unlink(missing_ok=True)
+
+
 def validate_archive(archive: ZipFile, manifest: dict) -> None:
     if not set(manifest["tables"]) <= set(TABLES):
         raise ValueError("Backup contains a table outside the project allowlist")
@@ -253,6 +355,19 @@ def validate_archive(archive: ZipFile, manifest: dict) -> None:
         archive.getinfo(f"sql/{table}.copy")
     if manifest["graph_present"]:
         archive.getinfo("graph.dump")
+    documents = manifest.get("documents", {})
+    if manifest["tables"].get("source_document_versions", {}).get("rows", 0) and not documents:
+        raise ValueError("Document metadata backup is missing its originals")
+    for digest, entry in documents.items():
+        if not isinstance(digest, str) or not re.fullmatch(r"[a-f0-9]{64}", digest):
+            raise ValueError("Invalid source document archive path")
+        body = archive.read(f"documents/{digest}")
+        if (
+            entry.get("sha256") != digest
+            or entry.get("bytes") != len(body)
+            or hashlib.sha256(body).hexdigest() != digest
+        ):
+            raise ValueError("Source document archive checksum mismatch")
     for entry in manifest["redis"]:
         if not any(fnmatch(entry["key"], pattern) for pattern in REDIS_PATTERNS):
             raise ValueError("Backup contains a Redis key outside the project allowlist")
@@ -267,6 +382,8 @@ async def run(args: argparse.Namespace) -> None:
             raise ValueError(
                 "Stop project writers and supply --writers-stopped --confirm stockgraph/stock_graph"
             )
+    if args.reset or args.restore:
+        await ensure_standalone_reset_safe(settings)
     if args.restore:
         # Validate the entire requested archive BEFORE resetting any existing data.
         with ZipFile(args.restore) as archive:
@@ -280,6 +397,7 @@ async def run(args: argparse.Namespace) -> None:
             ):
                 raise ValueError("Not a project backup")
             validate_archive(archive, manifest)
+            validate_document_targets(settings, archive, manifest)
     await backup(settings, Path(args.backup_dir))
     if args.reset or args.restore:
         await reset(settings)

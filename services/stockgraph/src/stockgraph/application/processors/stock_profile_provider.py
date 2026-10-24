@@ -13,6 +13,11 @@ class StockProfileProvider:
         profile = self._repo.get_entity("Stock", ticker.upper())
         if profile is None:
             raise KeyError(f"Unknown registered stock {ticker!r}")
+        guidance = profile.get("latest_guidance_highlights", [])
+        # Pure narrative chunks from committed source documents, never SQL financial series.
+        if hasattr(self._repo, "_run"):
+            from stockgraph.adapters.repositories.falkor.professional import EvidenceRepository
+            guidance = EvidenceRepository(self._repo).guidance_highlights(ticker.upper()) or guidance
         return StockContextCard(
             ticker=ticker.upper(),
             business_summary=profile.get("business_summary"),
@@ -22,7 +27,7 @@ class StockProfileProvider:
             strengths=profile.get("strengths", []),
             business_exclusions=profile.get("business_exclusions", []),
             latest_quarter_summary=profile.get("latest_quarter_summary"),
-            latest_guidance_highlights=profile.get("latest_guidance_highlights", []),
+            latest_guidance_highlights=guidance,
             active_exposures=self._repo.get_active_exposures(ticker.upper()),
             sector=profile.get("sector"),
         )

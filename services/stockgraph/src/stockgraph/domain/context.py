@@ -54,4 +54,28 @@ class GraphContextResponse(BaseModel):
     edges: list[GraphEdge]
     direct_news: list[ContextNewsItem]
     indirect_news: list[ContextNewsItem]
+    professional_evidence: list[dict[str, Any]] = Field(default_factory=list)
+    evidence_policy: dict[str, Any] = Field(default_factory=dict)
     pagination: dict
+
+
+class PublicMarketGraphSelection(BaseModel):
+    """Counts and completeness information for the public graph preview."""
+
+    stock_target: int
+    stock_count: int
+    market_driver_count: int
+    news_count: int
+    edge_count: int
+    is_partial: bool
+
+
+class PublicMarketGraphResponse(BaseModel):
+    """Small, frontend-ready market graph assembled from public FalkorDB data."""
+
+    generated_at: int
+    start_ts: int
+    end_ts: int
+    selection: PublicMarketGraphSelection
+    nodes: list[GraphNode]
+    edges: list[GraphEdge]

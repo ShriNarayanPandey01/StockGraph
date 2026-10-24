@@ -549,8 +549,10 @@ async def test_mcp_tool_is_registered_with_fixed_windows():
     from stockgraph.adapters.api.mcp_server import build_server
 
     tools = await build_server().list_tools()
-    assert [tool.name for tool in tools] == ["get_stock_graph_context"]
-    assert "window" in tools[0].input_schema["properties"]
+    indexed = {tool.name: tool for tool in tools}
+    assert set(indexed) == {"get_stock_graph_context", "get_professional_evidence",
+                            "search_stock_documents", "get_stock_financial_history", "get_document_version"}
+    assert "window" in indexed["get_stock_graph_context"].input_schema["properties"]
 
 
 def test_repository_refuses_writes_after_lease_loss():

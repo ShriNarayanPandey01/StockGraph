@@ -3,6 +3,7 @@
 import hashlib
 
 from stockgraph.adapters.repositories.falkor.repository import public_props
+from stockgraph.application.professional import professional_context
 from stockgraph.domain.context import (
     ContextNewsItem,
     GraphContextResponse,
@@ -12,6 +13,7 @@ from stockgraph.domain.context import (
 )
 from stockgraph.domain.enums import Window
 from stockgraph.domain.schemas import resolve_window
+from stockgraph.runtime.settings import settings
 
 
 class GraphContextService:
@@ -113,7 +115,21 @@ class GraphContextService:
                     }
                 )
             )
+        professional = {"items": [], "policy": {}, "pagination": {"has_more": False}}
+        if hasattr(self._repo, "professional_page"):
+            professional = professional_context(self._repo, ticker, start, end, offset, limit,
+                                                settings.professional_evidence_weight)
+            for view in professional["items"]:
+                evidence_id = node("ProfessionalEvidence", view)
+                edge(evidence_id, stock_id, "PROFESSIONAL_VIEW_ON", {
+                    "rationale": view["title"], "source": "PROFESSIONAL",
+                    "author_id": view["author_id"], "author_name": view["author_name"],
+                    "valid_from_ts": view["valid_from_ts"], "valid_to_ts": view["valid_to_ts"],
+                    "priority_weight": view["priority_weight"], "direction": view["direction"],
+                    "horizon": view["horizon"], "evidence": view["evidence"],
+                })
         more = {section: len(rows) > limit for section, rows in page.items()}
+        more["professional_evidence"] = professional["pagination"]["has_more"]
         return GraphContextResponse(
             ticker=ticker,
             window=window,
@@ -124,6 +140,8 @@ class GraphContextService:
             edges=list(edges.values()),
             direct_news=direct,
             indirect_news=indirect,
+            professional_evidence=professional["items"],
+            evidence_policy=professional["policy"],
             pagination={
                 "offset": offset,
                 "limit": limit,

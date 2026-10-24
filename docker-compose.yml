@@ -1,4 +1,46 @@
 services:
+  platform-db-init:
+    build:
+      context: .
+      dockerfile: services/platform/Dockerfile
+    command: ["python", "-m", "marketgraph_platform.bootstrap_database"]
+    environment:
+      PLATFORM_ADMIN_DSN: postgresql://${POSTGRES_USER:-stockgraph}:${POSTGRES_PASSWORD:-stockgraph}@timescale:5432/${POSTGRES_DB:-stockgraph}
+      PLATFORM_DB_NAME: marketgraph_platform
+      PLATFORM_DB_USER: ${PLATFORM_DB_USER:-marketgraph_platform}
+      PLATFORM_DB_PASSWORD: ${PLATFORM_DB_PASSWORD:-local-platform-change-me}
+    depends_on:
+      timescale: {condition: service_healthy}
+    restart: "no"
+
+  platform-api:
+    build:
+      context: .
+      dockerfile: services/platform/Dockerfile
+    ports: ["127.0.0.1:8002:8002"]
+    environment: &platform-environment
+      PLATFORM_DATABASE_DSN: postgresql://${PLATFORM_DB_USER:-marketgraph_platform}:${PLATFORM_DB_PASSWORD:-local-platform-change-me}@timescale:5432/marketgraph_platform
+      PLATFORM_REDIS_URL: redis://redis:6379/0
+      PLATFORM_DATA_SERVICE_URL: http://data-api:8001
+      PLATFORM_GRAPH_SERVICE_URL: http://graph-api:8000
+      PLATFORM_AGENT_SERVICE_KEY: ${PLATFORM_AGENT_SERVICE_KEY:-}
+      PLATFORM_PROFESSIONAL_WEIGHT: ${PROFESSIONAL_EVIDENCE_WEIGHT:-1.5}
+    depends_on:
+      platform-db-init: {condition: service_completed_successfully}
+      redis: {condition: service_healthy}
+    restart: unless-stopped
+
+  platform-worker:
+    build:
+      context: .
+      dockerfile: services/platform/Dockerfile
+    command: ["marketgraph-platform-worker"]
+    environment: *platform-environment
+    depends_on:
+      platform-db-init: {condition: service_completed_successfully}
+      redis: {condition: service_healthy}
+    restart: unless-stopped
+
   data-api:
     build:
       context: .
@@ -21,6 +63,10 @@ services:
       NEWS_REQUESTS_PER_RUN: ${NEWS_REQUESTS_PER_RUN:-2}
       NEWS_LOOKBACK_MINUTES: ${NEWS_LOOKBACK_MINUTES:-720}
       NEWS_MAX_ARTICLES_PER_RUN: ${NEWS_MAX_ARTICLES_PER_RUN:-60}
+      DOCUMENT_STORAGE_ROOT: /app/documents
+      DOCUMENT_INTERNAL_API_KEY: ${DOCUMENT_INTERNAL_API_KEY:-}
+    volumes:
+      - source-documents:/app/documents
     depends_on:
       timescale: {condition: service_healthy}
       redis: {condition: service_healthy}
@@ -32,6 +78,8 @@ services:
       dockerfile: services/upstox/Dockerfile
     command: ["upstox-worker"]
     environment: *data-environment
+    volumes:
+      - source-documents:/app/documents
     depends_on:
       timescale: {condition: service_healthy}
       redis: {condition: service_healthy}
@@ -63,6 +111,9 @@ services:
       DEVELOPER_GRAPH_MUTATIONS_ENABLED: ${DEVELOPER_GRAPH_MUTATIONS_ENABLED:-false}
       EVENT_STREAM: stockgraph:events:v1
       EVENT_CONSUMER_GROUP: graph-v1
+      PLATFORM_STREAM_NAME: stockgraph:platform-events:v1
+      PLATFORM_CONSUMER_GROUP: stockgraph-platform-v1
+      PROFESSIONAL_EVIDENCE_WEIGHT: ${PROFESSIONAL_EVIDENCE_WEIGHT:-1.5}
       APP_TIMEZONE: Asia/Kolkata
       EMBEDDING_DIMENSION: ${EMBEDDING_DIMENSION:-1536}
       LLM_ENABLED: ${LLM_ENABLED:-false}
@@ -119,7 +170,9 @@ services:
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-stockgraph}
       POSTGRES_DB: ${POSTGRES_DB:-stockgraph}
     volumes:
-      - timescale-data:/var/lib/postgresql/data
+      # Existing installations: follow docs/PHASE1_PLATFORM.md before recreating
+      # a container whose old mount did not cover the image's actual PGDATA.
+      - timescale-data:/home/postgres/pgdata/data
     restart: unless-stopped
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-stockgraph} -d ${POSTGRES_DB:-stockgraph}"]
@@ -147,6 +200,7 @@ volumes:
   falkor-data:
   timescale-data:
   redis-data:
+  source-documents:
 
 networks:
   default:

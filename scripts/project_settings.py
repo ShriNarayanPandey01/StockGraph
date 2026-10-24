@@ -5,6 +5,7 @@ maintenance script must address TimescaleDB, FalkorDB, and Redis together.
 Runtime services continue to own their own narrower settings models.
 """
 
+from pydantic import SecretStr
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -22,3 +23,9 @@ class ProjectDataSettings(BaseSettings):
     falkor_port: int = 6379
     falkor_graph_name: str = "stock_graph"
     redis_url: str = "redis://localhost:6380/0"
+
+    document_storage_root: str = "./var/documents"
+
+    platform_database_dsn: SecretStr = SecretStr(
+        "postgresql://platform:platform@localhost:5432/marketgraph_platform"
+    )

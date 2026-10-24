@@ -38,6 +38,14 @@ APPROVED_CATEGORIES = frozenset(
 # These are intentionally broad and take precedence over all provider labels.
 # A publisher can put a cricket story on a business desk; that does not make it
 # financial market news.
+# Financial materiality takes precedence over incidental sector vocabulary.
+MATERIAL_FINANCIAL_EVENT = re.compile(
+    r"\b(?:quarterly|earnings|profits?|revenues?|ebitda|dividends?|buybacks?|"
+    r"shareholders?|acquisitions?|mergers?|ipo|debt|default|insolvency|"
+    r"regulatory filing|reg[ -]?30|financial results)\b",
+    re.IGNORECASE,
+)
+
 HARD_REJECTION_PATTERNS: tuple[tuple[str, tuple[str, ...]], ...] = (
     (
         "SPORTS",
@@ -137,14 +145,23 @@ class StockGraphEligibilityReviewer:
                 body = response.json()
             if not isinstance(body, dict):
                 return None
+            if body.get("reason") == "REVIEW_UNAVAILABLE":
+                return None
             if not bool(body.get("eligible")):
-                return EligibilityDecision(False, None, "LLM", str(body.get("reason") or "LLM_REJECTED"))
+                return EligibilityDecision(
+                    False, None, "LLM", str(body.get("reason") or "LLM_REJECTED")
+                )
             category = NewsCategory(str(body.get("category") or ""))
             if category not in APPROVED_CATEGORIES:
                 return None
-            return EligibilityDecision(True, category, "LLM", str(body.get("reason") or "LLM_APPROVED"))
+            return EligibilityDecision(
+                True, category, "LLM", str(body.get("reason") or "LLM_APPROVED")
+            )
         except (httpx.HTTPError, ValueError, TypeError) as exc:
-            logger.warning("News eligibility review unavailable; article will be rejected: %s", exc)
+            logger.warning(
+                "News eligibility review unavailable; article review remains pending (%s)",
+                type(exc).__name__,
+            )
             return None
 
 
@@ -157,7 +174,7 @@ class NewsEligibilityGate:
     async def decide(self, article: NewsArticle) -> EligibilityDecision:
         text = f"{article.headline}\n{article.summary}".lower()
         hard_reason = self.hard_rejection_reason(text)
-        if hard_reason:
+        if hard_reason and article.category is not NewsCategory.REG30:
             return EligibilityDecision(False, None, "RULES", hard_reason)
 
         category = article.category
@@ -188,6 +205,8 @@ class NewsEligibilityGate:
 
     @staticmethod
     def hard_rejection_reason(text: str) -> str | None:
+        if MATERIAL_FINANCIAL_EVENT.search(text):
+            return None
         for reason, patterns in HARD_REJECTION_PATTERNS:
             if any(re.search(pattern, text, flags=re.IGNORECASE) for pattern in patterns):
                 return reason
@@ -195,8 +214,13 @@ class NewsEligibilityGate:
 
     @staticmethod
     def _matches_market_geopolitics(text: str) -> bool:
-        return any(re.search(pattern, text, flags=re.IGNORECASE) for pattern in MARKET_MATERIAL_GEO_PATTERNS)
+        return any(
+            re.search(pattern, text, flags=re.IGNORECASE)
+            for pattern in MARKET_MATERIAL_GEO_PATTERNS
+        )
 
     @staticmethod
     def _matches_clear_market_event(text: str) -> bool:
-        return any(re.search(pattern, text, flags=re.IGNORECASE) for pattern in CLEAR_MARKET_EVENT_PATTERNS)
+        return any(
+            re.search(pattern, text, flags=re.IGNORECASE) for pattern in CLEAR_MARKET_EVENT_PATTERNS
+        )

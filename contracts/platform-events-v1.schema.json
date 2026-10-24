@@ -1,0 +1,46 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:marketgraph:platform-event:v1",
+  "title": "Committed professional and document evidence",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version","event_id","kind","entity_id","revision","occurred_at","payload"],
+  "properties": {
+    "schema_version": {"const":1},
+    "event_id": {"type":"string","format":"uuid"},
+    "kind": {"enum":["professional.published","professional.retracted","professional.author-status","document.extracted"]},
+    "entity_id": {"type":"string","minLength":1,"maxLength":200},
+    "revision": {"type":"integer","minimum":1},
+    "occurred_at": {"type":"string","format":"date-time"},
+    "payload": {"type":"object"}
+  },
+  "allOf": [
+    {"if":{"properties":{"kind":{"const":"professional.published"}}},"then":{"properties":{"payload":{
+      "required":["contribution_id","version_id","author_id","author_name","ticker","title","body","direction","horizon","event_at","published_at","expires_at","evidence","future_access"],
+      "properties":{
+        "contribution_id":{"type":"string","format":"uuid"},"version_id":{"type":"string","format":"uuid"},
+        "author_id":{"type":"string","format":"uuid"},"author_name":{"type":"string","minLength":1},
+        "ticker":{"type":"string","minLength":1},"title":{"type":"string","minLength":1},"body":{"type":"string","minLength":1},
+        "direction":{"enum":["BULLISH","BEARISH","NEUTRAL"]},"horizon":{"type":"string","minLength":1},
+        "event_at":{"type":"string","format":"date-time"},"published_at":{"type":"string","format":"date-time"},
+        "expires_at":{"type":"string","format":"date-time"},"evidence":{"type":"array","minItems":1,"maxItems":50,"items":{"type":"object"}},
+        "future_access":{"const":"PRO"}
+      }
+    }}}},
+    {"if":{"properties":{"kind":{"const":"professional.retracted"}}},"then":{"properties":{"payload":{
+      "required":["contribution_id","version_id","ticker","reason"],"properties":{
+        "contribution_id":{"type":"string","format":"uuid"},"version_id":{"type":"string","format":"uuid"},"ticker":{"type":"string"},"reason":{"type":"string","minLength":1}
+      }
+    }}}},
+    {"if":{"properties":{"kind":{"const":"professional.author-status"}}},"then":{"properties":{"payload":{
+      "required":["author_id","verified"],"properties":{"author_id":{"type":"string","format":"uuid"},"verified":{"type":"boolean"}}
+    }}}},
+    {"if":{"properties":{"kind":{"const":"document.extracted"}}},"then":{"properties":{"payload":{
+      "required":["ticker","document_id","version_id","content_hash","title","source_url","document_kind","chunks"],"properties":{
+        "ticker":{"type":"string"},"document_id":{"type":"string","format":"uuid"},"version_id":{"type":"string","format":"uuid"},
+        "content_hash":{"type":"string","pattern":"^[a-f0-9]{64}$"},"chunks":{"type":"array","minItems":1,"items":{"type":"object"}},
+        "document_kind":{"enum":["GUIDANCE","FILING","RESEARCH","OTHER"]}
+      }
+    }}}}
+  ]
+}
