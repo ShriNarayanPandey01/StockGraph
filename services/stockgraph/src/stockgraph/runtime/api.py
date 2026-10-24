@@ -14,6 +14,8 @@ from stockgraph.adapters.llm.providers import LiteLLMChatProvider
 from stockgraph.adapters.messaging.consumer import renewable_lock
 from stockgraph.adapters.repositories.falkor.repository import GraphRepository
 from stockgraph.application.graph_queries.context import GraphContextService
+from stockgraph.application.graph_queries.chat import GraphChatService
+from stockgraph.domain.chat import ChatRequest, ChatResponse
 from stockgraph.application.processors.news_eligibility import (
     GraphNewsEligibilityReviewer,
     NewsEligibilityRequest,
@@ -57,9 +59,22 @@ def create_app(
         data_client if data_client is not None else DataServiceClient(settings.data_service_url)
     )
     app.state.context = GraphContextService(app.state.repo)
+    app.state.chat = GraphChatService(app.state.context, LiteLLMChatProvider(app.state.broker))
     app.state.eligibility_reviewer = eligibility_reviewer or GraphNewsEligibilityReviewer(
         LiteLLMChatProvider(app.state.broker)
     )
+
+    @app.post("/api/v1/chat", response_model=ChatResponse)
+    async def graph_chat(body: ChatRequest) -> ChatResponse:
+        """Return grounded text and validated, read-only frontend graph actions."""
+        from stockgraph.adapters.llm.base import BudgetExceeded, LLMDisabled
+
+        try:
+            return await asyncio.to_thread(app.state.chat.respond, body)
+        except KeyError as exc:
+            raise HTTPException(404, "Stock is not yet projected; check its registration job") from exc
+        except (BudgetExceeded, LLMDisabled) as exc:
+            raise HTTPException(503, str(exc)) from exc
 
     @app.get("/health")
     async def health() -> dict:
