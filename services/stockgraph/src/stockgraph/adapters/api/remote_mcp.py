@@ -50,8 +50,15 @@ class BearerProtectedApp:
 
     async def __call__(self, scope, receive, send):
         if scope["type"] == "http":
-            authorization = dict(scope.get("headers", [])).get(b"authorization", b"").decode("utf-8", "replace")
-            if not hmac.compare_digest(authorization, "Bearer " + self.token):
+            headers = dict(scope.get("headers", []))
+            authorization = headers.get(b"authorization", b"").decode("utf-8", "replace")
+            api_key = headers.get(b"x-api-key", b"").decode("utf-8", "replace")
+            # AgenticOrg's API Key provider may use X-API-Key instead of Bearer.
+            authorized = (
+                hmac.compare_digest(authorization, "Bearer " + self.token)
+                or hmac.compare_digest(api_key, self.token)
+            )
+            if not authorized:
                 body = b'{"error":"Unauthorized"}'
                 await send({
                     "type": "http.response.start",
