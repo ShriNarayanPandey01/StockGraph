@@ -132,6 +132,19 @@ services:
       redis: {condition: service_healthy}
     restart: unless-stopped
 
+  graph-mcp:
+    build:
+      context: .
+      dockerfile: services/stockgraph/Dockerfile.mcp
+    ports: ["${MCP_BIND_ADDRESS:-127.0.0.1}:${MCP_PORT:-8003}:8000"]
+    environment:
+      STOCKGRAPH_API_URL: http://graph-api:8000
+      MCP_BEARER_TOKEN: ${MCP_BEARER_TOKEN:-}
+      PORT: "8000"
+    depends_on:
+      graph-api: {condition: service_started}
+    restart: unless-stopped
+
   graph-worker:
     build:
       context: .
