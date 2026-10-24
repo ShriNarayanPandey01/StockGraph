@@ -45,6 +45,10 @@ CREATE TABLE IF NOT EXISTS stock_shareholding_versions (
 );
 CREATE INDEX IF NOT EXISTS stock_shareholding_latest
     ON stock_shareholding_versions(isin,period,category,vendor_as_of DESC);
+CREATE TABLE IF NOT EXISTS stock_shareholding_snapshots (
+    isin text NOT NULL, vendor_as_of timestamptz NOT NULL, payload jsonb NOT NULL,
+    PRIMARY KEY(isin,vendor_as_of)
+);
 CREATE TABLE IF NOT EXISTS stock_shareholding_sync (
     isin text PRIMARY KEY, vendor_as_of timestamptz NOT NULL
 );
@@ -79,9 +83,10 @@ def _json(value: Any) -> Any:
 
 
 async def init_stock_data_schema(repository: Any) -> None:
+    from upstox_service.adapters.repositories.timescale.migrations import apply_migration
     pool = await repository.connect()
     async with pool.acquire() as conn:
-        await conn.execute(STOCK_DATA_DDL)
+        await apply_migration(conn,"003_stock_data",STOCK_DATA_DDL)
 
 
 class StockDataRepository:
@@ -238,6 +243,15 @@ class StockDataRepository:
     async def get_shareholding(self, isin: str) -> dict:
         pool = await self._repository.connect()
         async with pool.acquire() as conn:
+            snapshot = await conn.fetchrow(
+                "SELECT payload,vendor_as_of FROM stock_shareholding_snapshots "
+                "WHERE isin=$1 ORDER BY vendor_as_of DESC LIMIT 1", isin,
+            )
+            if snapshot:
+                return {"rows": [
+                    {**r, "vendor_id": "UPSTOX", "vendor_as_of": snapshot["vendor_as_of"]}
+                    for r in _json(snapshot["payload"])
+                ], "vendor_as_of": snapshot["vendor_as_of"]}
             rows = await conn.fetch(
                 """SELECT DISTINCT ON (period,category) period,category,percentage,
                           vendor_id,vendor_as_of
@@ -252,6 +266,12 @@ class StockDataRepository:
     async def save_shareholding(self, isin: str, rows: list[dict], as_of: datetime) -> None:
         pool = await self._repository.connect()
         async with pool.acquire() as conn, conn.transaction():
+            # Whole observation snapshots preserve A -> B -> A and category removals.
+            await conn.execute(
+                "INSERT INTO stock_shareholding_snapshots(isin,vendor_as_of,payload) "
+                "VALUES($1,$2,$3::jsonb) ON CONFLICT DO NOTHING",
+                isin, as_of, json.dumps(rows, default=str),
+            )
             await conn.executemany(
                 """INSERT INTO stock_shareholding_versions
                    (isin,period,category,percentage,content_hash,vendor_id,vendor_as_of)

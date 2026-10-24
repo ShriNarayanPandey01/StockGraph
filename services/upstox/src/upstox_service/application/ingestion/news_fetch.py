@@ -268,8 +268,18 @@ class NewsFetchService:
             if adapter is None:
                 continue
             try:
-                item = adapter.replay_item(row["payload"])
-                pairs = adapter._normalize([item])
+                try:
+                    item = adapter.replay_item(row["payload"])
+                    pairs = adapter._normalize([item])
+                except (ValueError, TypeError, KeyError):
+                    logger.warning(
+                        "Pending review cannot normalize provider=%s", row["provider_id"]
+                    )
+                    if hasattr(self._timescale, "defer_news_review"):
+                        await self._timescale.defer_news_review(
+                            row["provider_id"], row["external_id"]
+                        )
+                    continue
             except Exception as exc:  # noqa: BLE001 - one bad payload is skipped
                 logger.warning("Replay failed for %s: %s", row["external_id"], exc)
                 continue
@@ -355,7 +365,9 @@ class NewsFetchService:
                 continue
             decision = await self._eligibility.decide(article)
             if not decision.approved or decision.category is None:
-                key = f"rejected:{decision.reason or 'UNKNOWN'}"
+                if decision.reason == "REVIEW_UNAVAILABLE":
+                    approved_staged.append(stageable)
+                key = f"{'deferred' if decision.reason == 'REVIEW_UNAVAILABLE' else 'rejected'}:{decision.reason or 'UNKNOWN'}"
                 counts[key] = counts.get(key, 0) + 1
                 continue
             approved = replace(article, category=decision.category)
@@ -403,6 +415,43 @@ def build_news_adapters(
 
 class CommittedNewsFetchService(NewsFetchService):
     """Fail closed on SQL staging failures; commit the graph outbox atomically."""
+
+    async def fetch_cycle(self, **kwargs) -> FetchCycleResult:
+        # Replay only durable pending reviews before another paid request. Their
+        # raw payload is independent of the provider fetch watermark.
+        if self._timescale is not None and hasattr(self._timescale, "pending_news_reviews"):
+            adapters = {adapter.provider_id: adapter for adapter in self._adapters}
+            for row in await self._timescale.pending_news_reviews(
+                limit=settings.news_max_articles_per_run
+            ):
+                adapter = adapters.get(row["provider_id"])
+                if adapter is None:
+                    continue
+                item = adapter.replay_item(row["payload"])
+                pairs = adapter._normalize([item])
+                if not pairs:
+                    await self._timescale.finish_news_review(row["provider_id"], row["external_id"])
+                    continue
+                article, staged = pairs[0]
+                decision = await self._eligibility.decide(article)
+                if decision.reason == "REVIEW_UNAVAILABLE":
+                    if hasattr(self._timescale, "defer_news_review"):
+                        await self._timescale.defer_news_review(
+                            row["provider_id"], row["external_id"]
+                        )
+                    continue
+                if decision.approved and decision.category is not None:
+                    await self._timescale.commit_news(
+                        ProviderFetchResult(
+                            provider_id=row["provider_id"],
+                            status=ProviderStatus.AVAILABLE,
+                            articles=(replace(article, category=decision.category),),
+                            staged=(staged,),
+                            approvals={article.external_id: (decision.source, decision.reason)},
+                        )
+                    )
+                await self._timescale.finish_news_review(row["provider_id"], row["external_id"])
+        return await super().fetch_cycle(**kwargs)
 
     async def _stage(self, result: ProviderFetchResult) -> None:
         if self._timescale is None:

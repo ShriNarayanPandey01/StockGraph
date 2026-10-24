@@ -589,3 +589,98 @@ Common statuses: `404` for unknown/unavailable resources, `422` for invalid
 parameters or unsupported combinations, `502` for invalid upstream responses,
 and `503` for unavailable dependencies, authorization/entitlement problems, or
 temporary provider failures.
+
+## MarketGraph Platform — free Phase 1
+
+Platform API: `http://localhost:8002/docs`. Exact models are available from its
+`/openapi.json`. See [setup and operations](PHASE1_PLATFORM.md). Pine Labs and
+RBAC are Phase 2; there are no stock/chat/alert plan quotas in Phase 1.
+
+Application endpoints require `Authorization: Bearer <opaque-token>`. Tokens are
+operator-provisioned, hashed at rest and revocable; there is no default token.
+Ownership checks remain active. Operational request limits return `429`.
+
+| Method | Endpoint | Behavior |
+|---|---|---|
+| GET | `/api/v1/me`, `/api/v1/access-policy`, `/api/v1/me/usage` | Identity, free access policy and measured usage |
+| POST / GET | `/api/v1/contributions` | Create owned draft / list own contributions |
+| GET | `/api/v1/contributions/{id}` | Owned draft or published version |
+| POST | `/api/v1/contributions/{id}/versions` | Create correction/version |
+| POST | `/api/v1/contributions/{id}/submit` | Freeze for review |
+| GET | `/api/v1/review-queue` | Submitted versions for independent review |
+| POST | `/api/v1/contributions/{id}/review` | Approve/reject; self-review prohibited |
+| POST | `/api/v1/contributions/{id}/retract` | Preserve history and withdraw evidence |
+| GET | `/api/v1/stocks/{ticker}/professional-evidence` | SQL-authoritative reviewed evidence; free to all users |
+| GET | `/api/v1/stocks/{ticker}/connections` | Same-origin proxy for existing Graph context |
+| POST / GET | `/api/v1/watchlists` | Create/list owned selections |
+| PUT / DELETE | `/api/v1/watchlists/{id}` | Replace/delete; deleting cancels monitor work |
+| POST | `/api/v1/conversations` | Create owned research conversation |
+| POST / GET | `/api/v1/conversations/{id}/messages` | Queue research / read messages |
+| POST | `/api/v1/discovery/scans` | Queue external-agent discovery |
+| GET | `/api/v1/agent-jobs/{id}` | Owned processing/result status |
+| POST / GET | `/api/v1/monitor-rules` | Create/list periodic monitoring |
+| DELETE | `/api/v1/monitor-rules/{id}` | Stop monitoring and invalidate outstanding work |
+| GET | `/api/v1/alerts` | Cursor-paginated in-app opportunity feed |
+| POST | `/api/v1/alerts/{id}/acknowledge` | Idempotently mark owned alert seen |
+
+Draft creation, chat messages and discovery require `Idempotency-Key`; mismatched
+reuse returns `409`. Contribution transitions require `expected_revision`.
+The contribution input contains `ticker`, `title`, `body`, `direction`
+(`BULLISH|BEARISH|NEUTRAL`), `horizon`, timezone-aware `event_at` and `expires_at`,
+`disclosures`, and `evidence` entries with `url`, `title`, `locator` and optional
+`document_version_id`. Document references must belong to the same stock.
+
+Approval requires a verified professional author and a different authenticated
+reviewer. Draft versions stay author-owned. Corrections create immutable versions;
+timestamps distinguish source event, submission, publication and known-at time.
+Professional priority is configurable weighting, not an unconditional override.
+Future `PRO` classification is stored without access enforcement.
+
+### External-agent integration
+
+Machine endpoints require `X-Agent-Key: <PLATFORM_AGENT_SERVICE_KEY>`; empty
+configuration disables them. Claim returns a lease; send it using `X-Job-Lease`.
+User identity comes from the stored job, never a caller-supplied owner ID.
+
+| Method | Endpoint | Behavior |
+|---|---|---|
+| POST | `/internal/v1/agent/jobs/claim` | Claim pending/recoverable work |
+| POST | `/internal/v1/agent/jobs/{id}/heartbeat` | Extend an active lease |
+| GET | `/internal/v1/agent/jobs/{id}/context/{ticker}` | Scoped Graph, financial and professional evidence |
+| GET | `/internal/v1/agent/jobs/{id}/documents/{ticker}` | Scoped document excerpt search |
+| POST | `/internal/v1/agent/jobs/{id}/complete` | Commit cited answer and deduplicated alerts |
+| POST | `/internal/v1/agent/jobs/{id}/fail` | Report retryable/terminal failure |
+
+Research input contains `question`, `tickers`, `window=LAST_6M|LAST_1Y`.
+An empty list uses the registered catalog. Tools return `available_evidence`
+containing `kind`, `id`, `locator`, `quote_text`, `material_version`, `ticker`.
+Completion contains `answer`, `status`, `evidence`, `alerts`, `reported_tokens`.
+For supported answers cite supplied `{kind,id,locator?,quote}` values, using exact
+source excerpts. Alternatively return `status: insufficient_evidence` with no
+alerts. Alert event/material identities must match supplied evidence. Leases,
+stock scopes, evidence eligibility and operational tool budgets are enforced.
+Reported tokens are telemetry, not audited provider charges. There is no order tool.
+
+### Graph, documents and connections page
+
+Graph context adds `professional_evidence`, `evidence_policy`, professional nodes
+and edges, and a professional pagination section. It preserves existing fields.
+Additional Graph reads are `/api/v1/stocks/{ticker}/professional-evidence` and
+`/api/v1/stocks/{ticker}/documents/search?q=&offset=0&limit=50`.
+
+Data intake `POST /api/v1/documents` requires `X-Internal-Api-Key` and permitted
+PDF/text base64 originals. Input: `ticker`, `title`, `source_url`, `media_type`,
+`document_kind`, `content_base64`, `redistribution_permitted: true`. Read exact
+versions using `GET /api/v1/documents/{version_id}` or `/original`. URLs are
+citations, not remote fetch instructions; OCR is not implemented.
+
+MCP tools: `get_stock_graph_context`, `get_professional_evidence`,
+`search_stock_documents`, `get_stock_financial_history`, `get_document_version`.
+These stdio tools expose shared market evidence. Private user research uses the
+authenticated leased-agent API.
+
+Open `/connections` on the Platform API for the Stock Connections Explorer.
+It displays stocks, events, commodities, sectors, macro factors and professional
+views using the existing graph contract, preserving `as_of_ts` across pages.
+Tokens remain in the page only. Empty, partial, pending and failed states are
+visible. Confidence is extraction confidence, not price-move probability.

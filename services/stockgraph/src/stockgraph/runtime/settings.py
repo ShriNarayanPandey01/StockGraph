@@ -16,6 +16,9 @@ class Settings(BaseSettings):
     app_timezone: str = "Asia/Kolkata"
     event_stream: str = "stockgraph:events:v1"
     event_consumer_group: str = "graph-v1"
+    platform_stream_name: str = "stockgraph:platform-events:v1"
+    platform_consumer_group: str = "stockgraph-platform-v1"
+    professional_evidence_weight: float = Field(default=1.5, gt=1, le=3)
     event_retry_idle_ms: int = Field(default=60000, ge=1000)
     event_lease_seconds: int = Field(default=1800, ge=60)
     pagination_snapshot_max_age_seconds: int = Field(default=3600, ge=60, le=86400)

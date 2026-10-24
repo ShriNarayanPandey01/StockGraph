@@ -1,5 +1,11 @@
 # Service architecture and operating guide
 
+> **Current Phase 1 extension:** Read [PHASE1_PLATFORM.md](PHASE1_PLATFORM.md)
+> for the new Platform Backend, separate ordinary PostgreSQL application database,
+> professional publishing, permitted document originals, external-agent jobs and
+> Stock Connections Explorer. All features are free; RBAC and Pine Labs are Phase 2.
+> The two core services below preserve their existing database ownership.
+
 This specification supersedes the older single-service folder layout, combined
 dossier API, YAML-as-runtime-registry, selective macro baseline, and 30-minute
 cadence in documents 01–03. Phase 2 trading decisions and order execution remain

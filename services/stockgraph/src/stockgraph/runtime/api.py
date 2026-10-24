@@ -10,6 +10,7 @@ from fastapi import FastAPI, HTTPException, Query, Request
 from pydantic import BaseModel, ConfigDict, Field
 
 from stockgraph.adapters.api.data_client import DataServiceClient
+from stockgraph.adapters.api.evidence_routes import build_evidence_router
 from stockgraph.adapters.llm.providers import LiteLLMChatProvider
 from stockgraph.adapters.messaging.consumer import renewable_lock
 from stockgraph.adapters.repositories.falkor.repository import GraphRepository
@@ -58,6 +59,7 @@ def create_app(
         data_client if data_client is not None else DataServiceClient(settings.data_service_url)
     )
     app.state.context = GraphContextService(app.state.repo)
+    app.include_router(build_evidence_router(app.state.repo))
     app.state.public_market_graph = PublicMarketGraphService(app.state.repo)
     app.state.eligibility_reviewer = eligibility_reviewer or GraphNewsEligibilityReviewer(
         LiteLLMChatProvider(app.state.broker)

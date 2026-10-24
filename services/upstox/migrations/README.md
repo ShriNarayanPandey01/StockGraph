@@ -9,3 +9,12 @@ also performs this safe initialization. No command in this package drops data.
 `catalog.py` adds the SQL canonical catalog, immutable catalog revisions, durable
 registration jobs, provider fundamentals, normalized news, and transactional
 graph outbox. Existing provider quote/news raw vintages are preserved.
+# Ordered schema adoption
+
+Data Service schema startup now uses the checksummed
+`upstox_schema_migrations` journal under a PostgreSQL advisory lock. The first
+four entries adopt the idempotent numeric, catalog, stock-data and document
+baselines without deleting existing records. Changing an applied checksum fails
+startup; append a numbered migration for subsequent changes. Platform migrations
+are packaged separately and run against its own ordinary PostgreSQL database.
+

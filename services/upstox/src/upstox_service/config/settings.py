@@ -46,6 +46,10 @@ class Settings(BaseSettings):
     nse_max_retries: int = 3
     nse_backoff_base_seconds: float = 1
     vendor_revision_lookback_days: int = 10
+    checkpoint_catchup_max_days: int = Field(default=30, ge=1, le=365)
+    document_storage_root: str = "./var/documents"
+    document_max_bytes: int = Field(default=10485760, ge=1, le=52428800)
+    document_internal_api_key: SecretStr = Field(default=SecretStr(""), repr=False)
 
 
 settings = Settings()

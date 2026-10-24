@@ -54,6 +54,8 @@ class GraphContextResponse(BaseModel):
     edges: list[GraphEdge]
     direct_news: list[ContextNewsItem]
     indirect_news: list[ContextNewsItem]
+    professional_evidence: list[dict[str, Any]] = Field(default_factory=list)
+    evidence_policy: dict[str, Any] = Field(default_factory=dict)
     pagination: dict
 
 

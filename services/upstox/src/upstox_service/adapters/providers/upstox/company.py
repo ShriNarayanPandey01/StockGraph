@@ -5,6 +5,10 @@ from urllib.parse import quote, urlparse
 from zoneinfo import ZoneInfo
 
 from upstox_service.adapters.providers.upstox.client import ProviderError, UpstoxClient
+from upstox_service.application.financial_context import (
+    narrative_quarter_context,
+    normalize_statements,
+)
 from upstox_service.domain.models import CompanyBundle, StockRegistration
 
 
@@ -142,6 +146,9 @@ class UpstoxCompanyProvider:
                 )
             except ProviderError as exc:
                 warnings.append(f"{series}: {exc}")
+        entity["latest_quarter_summary"] = narrative_quarter_context(
+            normalize_statements(entity["ticker"], statements, "UPSTOX", now)
+        )
         # Never label an arbitrary intraday quote as an official CLOSE checkpoint.
         checkpoint = None
         checkpoint_raw = None

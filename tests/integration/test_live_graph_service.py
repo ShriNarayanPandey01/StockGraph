@@ -171,12 +171,47 @@ def test_live_graph_curated_links_survive_event_order_and_replay(graph):
     assert len(rows) == 1
     assert rows[0][1] == 0
     graph.reconcile_curated_links()
-    assert (
-        len(
-            graph._run(
-                "MATCH (:Commodity {id:'INPUT'})-[r:RELATED_TO]->(:Commodity {id:'OUTPUT'}) RETURN r.edge_id",
-                {},
-            )
-        )
-        == 1
-    )
+    assert len(graph._run(
+        "MATCH (:Commodity {id:'INPUT'})-[r:RELATED_TO]->(:Commodity {id:'OUTPUT'}) RETURN r.edge_id", {}
+    )) == 1
+
+
+def test_live_reconcile_accepts_empty_old_relationships_and_replaces_direct_with_indirect(graph):
+    now = seed_graph(graph)
+    news(graph, "reconcile-test", "Test Paint changes guidance", now, 0)
+    graph.reconcile_news_impacts("reconcile-test", ["TESTPAINT"], [{
+        "ticker": "TESTPAINT", "impact_type": "DIRECTLY_IMPACTS", "confidence": 0.9,
+        "rationale": "Direct announcement", "sentiment": -0.4}], [])
+    assert graph._run("MATCH (:NewsEvent {id:'reconcile-test'})-[r:DIRECTLY_IMPACTS]->"
+                      "(:Stock {ticker:'TESTPAINT'}) RETURN r.confidence", {}) == [[0.9]]
+    graph.reconcile_news_impacts("reconcile-test", ["TESTPAINT"], [{
+        "ticker": "TESTPAINT", "impact_type": "INDIRECTLY_IMPACTS", "confidence": 0.85,
+        "rationale": "Corrected: sector exposure"}], [{"kind": "commodity", "entity_id": "BRENT_CRUDE",
+        "confidence": 0.8, "rationale": "Crude shock"}])
+    rows = graph._run("MATCH (:NewsEvent {id:'reconcile-test'})-[r]->(t) "
+                      "RETURN type(r),coalesce(t.ticker,t.id),r.sentiment", {})
+    assert not any(row[0] == "DIRECTLY_IMPACTS" for row in rows)
+    indirect = next(row for row in rows if row[0] == "INDIRECTLY_IMPACTS")
+    assert indirect[1:] == ["TESTPAINT", -0.4]
+    assert any(row[0] == "SHOCKS" for row in rows)
+    graph.reconcile_news_impacts("reconcile-test", ["TESTPAINT"], [], [])
+    assert graph._run("MATCH (:NewsEvent {id:'reconcile-test'})-[r]->() RETURN type(r)", {}) == []
+
+
+def test_live_failed_inference_keeps_previously_accepted_relationships(graph):
+    from stockgraph.application.ingestion.pipeline import CheckedChat, GraphPipeline
+    from stockgraph.application.processors.entity_resolver import CanonicalEntityResolver
+    now = seed_graph(graph)
+    news(graph, "failed-inference-test", "Test Paint changes guidance", now, 0)
+    graph.merge_stock_impact("failed-inference-test", "TESTPAINT", "DIRECTLY_IMPACTS", 0.9,
+                             "Previously accepted inference")
+    class BrokenChat:
+        def complete_json(self, *args, **kwargs):
+            raise RuntimeError("Inference provider unavailable")
+    pipeline = GraphPipeline(graph, None, BrokenChat(), None)
+    with pytest.raises(RuntimeError, match="inference failed"):
+        pipeline._route({"id": "failed-inference-test", "headline": "Corrected headline", "summary": "Changed"},
+                        CanonicalEntityResolver.from_catalog(graph.catalog()), CheckedChat(BrokenChat()))
+    rows = graph._run("MATCH (:NewsEvent {id:'failed-inference-test'})-[r:DIRECTLY_IMPACTS]->"
+                      "(:Stock {ticker:'TESTPAINT'}) RETURN r.causal_rationale", {})
+    assert rows == [["Previously accepted inference"]]

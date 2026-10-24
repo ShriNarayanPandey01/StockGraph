@@ -19,6 +19,9 @@ lib64/
 parts/
 sdist/
 var/
+.playwright-mcp/
+.test-tmp-*/
+.test-artifacts/
 wheels/
 share/python-wheels/
 *.egg-info/
@@ -224,3 +227,4 @@ graphify-out/
 
 # Local project database backups (may contain licensed provider payloads).
 backups/
+var/

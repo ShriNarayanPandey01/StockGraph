@@ -165,6 +165,17 @@ async def equity_universe_job():
     await run_locked("daily_equity_universe", refresh)
 
 
+class PersistentSchedule(AsyncIOScheduler):
+    """Refresh job definitions without replacing a persisted missed execution."""
+
+    def _real_add_job(self, job, jobstore_alias, replace_existing):
+        store = self._lookup_jobstore(jobstore_alias)
+        existing = store.lookup_job(job.id)
+        if existing is not None:
+            job._modify(next_run_time=existing.next_run_time)
+        return super()._real_add_job(job, jobstore_alias, replace_existing)
+
+
 def build_scheduler(config: Settings | None = None) -> AsyncIOScheduler:
     config = config or Settings()
     url = urlsplit(config.redis_url)
@@ -178,7 +189,7 @@ def build_scheduler(config: Settings | None = None) -> AsyncIOScheduler:
         password=unquote(url.password) if url.password else None,
         ssl=url.scheme == "rediss",
     )
-    scheduler = AsyncIOScheduler(
+    scheduler = PersistentSchedule(
         jobstores={"default": store},
         timezone=config.app_timezone,
         job_defaults={"coalesce": True, "max_instances": 1, "misfire_grace_time": 300},

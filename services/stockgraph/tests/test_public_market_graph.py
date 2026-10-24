@@ -1,6 +1,6 @@
+from fastapi.testclient import TestClient
 from stockgraph.application.graph_queries.public_preview import PublicMarketGraphService
 from stockgraph.runtime.api import create_app
-from fastapi.testclient import TestClient
 
 
 class PreviewRepo:

@@ -10,6 +10,7 @@ from typing import Any
 from uuid import uuid4
 
 from stockgraph.adapters.repositories.falkor.legacy_repository import FalkorGraphRAGRepository
+from stockgraph.adapters.repositories.falkor.news_reconciliation import NewsReconciliation
 from stockgraph.runtime.settings import settings
 
 KINDS = {"Stock": "ticker", "Commodity": "id", "MacroFactor": "id", "Sector": "id"}
@@ -56,7 +57,11 @@ def public_props(props: dict) -> dict:
     }
 
 
-class GraphRepository(FalkorGraphRAGRepository):
+class GraphRepository(NewsReconciliation, FalkorGraphRAGRepository):
+    def professional_page(self, ticker, start, end, offset=0, limit=50):
+        from stockgraph.adapters.repositories.falkor.professional import EvidenceRepository
+        return EvidenceRepository(self).professional_page(ticker, start, end, offset, limit)
+
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
         self._write_guard = None
