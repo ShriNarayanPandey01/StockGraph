@@ -145,6 +145,19 @@ services:
       graph-api: {condition: service_started}
     restart: unless-stopped
 
+  data-mcp:
+    build:
+      context: .
+      dockerfile: services/stockgraph/Dockerfile.data-mcp
+    ports: ["${MCP_BIND_ADDRESS:-127.0.0.1}:${DATA_MCP_PORT:-8004}:8000"]
+    environment:
+      DATA_SERVICE_URL: http://data-api:8001
+      MCP_BEARER_TOKEN: ${DATA_MCP_BEARER_TOKEN:-}
+      PORT: "8000"
+    depends_on:
+      data-api: {condition: service_started}
+    restart: unless-stopped
+
   graph-worker:
     build:
       context: .
