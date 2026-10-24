@@ -7,9 +7,9 @@ import os
 from urllib.parse import quote
 
 import httpx
-from mcp.server.fastmcp import FastMCP
+from mcp.server.mcpserver import MCPServer
 
-mcp = FastMCP("StockGraph", stateless_http=True, json_response=True)
+mcp = MCPServer("StockGraph")
 
 
 @mcp.tool()
@@ -71,7 +71,7 @@ def main() -> None:
     if not os.getenv("STOCKGRAPH_API_URL"):
         raise RuntimeError("STOCKGRAPH_API_URL is required")
     app = BearerProtectedApp(
-        mcp.streamable_http_app(), os.getenv("MCP_BEARER_TOKEN", "")
+        mcp.streamable_http_app(stateless_http=True, json_response=True, host="0.0.0.0"), os.getenv("MCP_BEARER_TOKEN", "")
     )
     uvicorn.run(app, host="0.0.0.0", port=int(os.getenv("PORT", "8000")))
 
