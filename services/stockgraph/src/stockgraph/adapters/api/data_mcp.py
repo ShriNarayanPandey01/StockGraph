@@ -6,10 +6,10 @@ import os
 from urllib.parse import quote
 
 import httpx
-from mcp.server.fastmcp import FastMCP
+from mcp.server.mcpserver import MCPServer
 from stockgraph.adapters.api.remote_mcp import BearerProtectedApp
 
-mcp = FastMCP("StockGraph Data", stateless_http=True, json_response=True)
+mcp = MCPServer("StockGraph Data")
 
 
 def _ticker(ticker: str) -> str:
@@ -66,7 +66,7 @@ def main() -> None:
     import uvicorn
     if not os.getenv("DATA_SERVICE_URL"):
         raise RuntimeError("DATA_SERVICE_URL must point to the Data REST API")
-    app = BearerProtectedApp(mcp.streamable_http_app(), os.getenv("MCP_BEARER_TOKEN", ""))
+    app = BearerProtectedApp(mcp.streamable_http_app(stateless_http=True, json_response=True, host="0.0.0.0"), os.getenv("MCP_BEARER_TOKEN", ""))
     uvicorn.run(app, host="0.0.0.0", port=int(os.getenv("PORT", "8000")))
 
 
