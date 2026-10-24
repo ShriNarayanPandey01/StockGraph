@@ -62,14 +62,17 @@ async def run_locked(name, operation):
     try:
         acquired = bool(await redis.set(key, token, nx=True, ex=900))
         if not acquired:
-            return
+            return "SKIPPED_LOCKED"
         run_id = await repo.record_ingest_run(name, "RUNNING")
         renewer = asyncio.create_task(renew())
         outcome = await operation(repo, config)
         if isinstance(outcome, IngestOutcome):
             await repo.update_ingest_run(run_id, outcome.status, details=outcome.details)
+            result = outcome.status
         else:
-            await repo.update_ingest_run(run_id, outcome or "SUCCESS")
+            result = outcome or "SUCCESS"
+            await repo.update_ingest_run(run_id, result)
+        return result
     except Exception:
         if run_id:
             await repo.update_ingest_run(
@@ -78,6 +81,7 @@ async def run_locked(name, operation):
                 error="Source job failed; inspect provider status without credentials",
             )
         logger.error("Source job %s failed", name)
+        return "FAILED"
     except asyncio.CancelledError:
         if run_id:
             await repo.update_ingest_run(
@@ -162,7 +166,7 @@ async def equity_universe_job():
             await v2_client.close()
             await v3_client.close()
 
-    await run_locked("daily_equity_universe", refresh)
+    return await run_locked("daily_equity_universe", refresh)
 
 
 class PersistentSchedule(AsyncIOScheduler):

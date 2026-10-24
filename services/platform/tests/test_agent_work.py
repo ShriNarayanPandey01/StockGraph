@@ -1,5 +1,6 @@
 """Leases and evidence are enforced independently of subscription access."""
 
+import asyncio
 import os
 from contextlib import asynccontextmanager
 from datetime import UTC, datetime, timedelta
@@ -210,6 +211,17 @@ async def test_postgres_lease_ownership_alert_dedup_and_completion_idempotence()
         assert reclaimed['lease_token'] != third['lease_token']
         with pytest.raises(WorkConflict):
             await leased_job(repo.pool,third['id'],third['lease_token'])
+        # Reclaimed work cannot reuse evidence supplied under the previous lease.
+        with pytest.raises(WorkConflict,match='not supplied'):
+            await complete_job(repo.pool,reclaimed['id'],reclaimed['lease_token'],result())
+        await fail_job(repo.pool,reclaimed['id'],reclaimed['lease_token'],False,3,'test-agent')
+        # Two concurrent claims acquire different jobs; a single queue item is
+        # never leased twice, and no global lock blocks a second owner.
+        await create_job(repo.pool,owner,'discovery',payload,'concurrent-1')
+        await create_job(repo.pool,outsider,'discovery',payload,'concurrent-2')
+        left,right = await asyncio.gather(claim_job(repo.pool,Settings()),claim_job(repo.pool,Settings()))
+        assert left['id'] != right['id'] and left['lease_token'] != right['lease_token']
+        assert await claim_job(repo.pool,Settings()) is None
     finally:
         await repo.close()
         await admin.execute(f'DROP SCHEMA "{schema}" CASCADE')

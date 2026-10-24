@@ -1,7 +1,7 @@
 """Tests for the read-only remote MCP gateway."""
+
 import pytest
 from starlette.testclient import TestClient
-
 from stockgraph.adapters.api import remote_mcp
 
 

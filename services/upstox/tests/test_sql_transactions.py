@@ -285,3 +285,128 @@ async def test_sql_provider_refresh_preserves_existing_curated_stock_profile():
     finally:
         await transaction.rollback()
         await conn.close()
+
+
+@pytest.mark.asyncio
+@pytest.mark.skipif(os.getenv("RUN_DATA_SQL_TESTS") != "1", reason="Opt-in SQL integration test")
+async def test_real_sql_migration_adoption_revisions_and_pending_review_recovery():
+    from datetime import date, timedelta
+    from decimal import Decimal
+
+    from upstox_service.adapters.repositories.timescale.migrations import (
+        apply_migration,
+        migrate_data_store,
+    )
+    from upstox_service.adapters.repositories.timescale.stock_data import StockDataRepository
+
+    conn = await asyncpg.connect(Settings().timescale_dsn)
+    outer = conn.transaction()
+    await outer.start()
+    schema = "data_migration_test_" + uuid4().hex
+    try:
+        await conn.execute(f"CREATE SCHEMA {schema}")
+        await conn.execute(f"SET LOCAL search_path TO {schema},public")
+        # Adopt a pre-migration deployment; retain historical vendor observations.
+        await conn.execute(DDL_SCHEMA)
+        await conn.execute(CATALOG_DDL)
+        await conn.execute(
+            "INSERT INTO vendor_quotes_raw(vendor_id,ticker,trade_date,series,payload) VALUES('UPSTOX','ABC','2026-10-20','CLOSE','{\"close\":100}')"
+        )
+        await migrate_data_store(conn)
+        await migrate_data_store(conn)
+        assert await conn.fetchval("SELECT count(*) FROM upstox_schema_migrations") == 4
+        assert await conn.fetchval("SELECT count(*) FROM vendor_quotes_raw") == 1
+        with pytest.raises(RuntimeError, match="Applied Data Service migration changed"):
+            await apply_migration(
+                conn, "002_catalog", CATALOG_DDL + "\n-- changed applied revision"
+            )
+        assert await conn.fetchval("SELECT count(*) FROM vendor_quotes_raw") == 1
+
+        class Pool:
+            @asynccontextmanager
+            async def acquire(self):
+                yield conn
+
+        repo = DataRepository()
+        repo._pool = Pool()
+        now = datetime.now(UTC)
+        trading_day = date(2026, 10, 20)
+        # Changed payloads preserve A -> B -> A, unchanged polls add no vintage.
+        for index, value in enumerate((100, 100, 110, 100)):
+            await repo.stage_vendor_quote(
+                "UPSTOX",
+                "ABC",
+                trading_day,
+                "CLOSE",
+                {"close": value},
+                now + timedelta(seconds=index),
+            )
+        rows = await repo.get_latest_vintages("UPSTOX", "ABC", trading_day, trading_day)
+        assert json.loads(rows[0]["payload"])["close"] == 100
+        assert await conn.fetchval("SELECT count(*) FROM vendor_quotes_raw") == 3
+        await repo.upsert_daily_metrics(
+            [
+                {
+                    "trade_date": trading_day,
+                    "ticker": "ABC",
+                    "session_type": "CLOSE",
+                    "close_price": 100,
+                    "vendor_id": "NSE_BHAVCOPY",
+                    "vendor_as_of": now,
+                    "delivery_pct": 60,
+                    "delivery_vendor_id": "NSE_BHAVCOPY",
+                    "delivery_vendor_as_of": now,
+                }
+            ]
+        )
+        job = await repo.create_job(StockRegistration(query="ABC"))
+        claim = await repo.claim_job(600, 3)
+        await repo.commit_company(
+            job["job_id"],
+            CompanyBundle(
+                entity={"ticker": "ABC", "name": "ABC Ltd", "isin": "INE000000001"},
+                raw={},
+                checkpoint={"trade_date": trading_day, "session_type": "CLOSE", "close_price": 105},
+            ),
+            attempt=claim["attempts"],
+        )
+        prices = await repo.get_daily_range("ABC", trading_day, trading_day)
+        assert prices[0]["vendor_id"] == "UPSTOX"
+        assert prices[0]["delivery_vendor_id"] == "NSE_BHAVCOPY"
+        assert prices[0]["delivery_pct"] == Decimal(60)
+        assert prices[0]["close_price"] == Decimal(105)
+        assert await repo.missing_checkpoint_dates(
+            "ABC", "CLOSE", trading_day, trading_day + timedelta(days=1)
+        ) == [trading_day + timedelta(days=1)]
+        shareholder = StockDataRepository(repo)
+        a = [
+            {"period": "Sep 2026", "category": "promoter", "percentage": 50},
+            {"period": "Sep 2026", "category": "public", "percentage": 50},
+        ]
+        b = [{"period": "Sep 2026", "category": "promoter", "percentage": 60}]
+        for index, snapshot in enumerate((a, b, a)):
+            await shareholder.save_shareholding(
+                "INE000000001", snapshot, now + timedelta(seconds=index)
+            )
+            current = await shareholder.get_shareholding("INE000000001")
+            assert [(r["category"], r["percentage"]) for r in current["rows"]] == [
+                (r["category"], r["percentage"]) for r in snapshot
+            ]
+        assert await conn.fetchval("SELECT count(*) FROM stock_shareholding_snapshots") == 3
+        raw = StagedNewsItem(
+            "pending", now, "https://example.test/pending", {"headline": "pending article"}
+        )
+        await repo.commit_news(
+            ProviderFetchResult(
+                provider_id="TEST", status=ProviderStatus.AVAILABLE, staged=(raw,), watermark_at=now
+            )
+        )
+        assert await conn.fetchval("SELECT count(*) FROM normalized_news") == 0
+        assert (await repo.pending_news_reviews())[0]["payload"]["headline"] == "pending article"
+        assert await repo.get_news_watermark("TEST") == now
+        await repo.defer_news_review("TEST", "pending")
+        await repo.finish_news_review("TEST", "pending")
+        assert await repo.pending_news_reviews() == []
+    finally:
+        await outer.rollback()
+        await conn.close()

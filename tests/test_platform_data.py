@@ -142,11 +142,16 @@ async def test_checksum_and_path_validation_precede_target_writes(tmp_path):
 
 async def test_platform_postgresql_roundtrip_with_immutable_history_and_fk_cycle(tmp_path):
     dsn = os.environ.get("PLATFORM_TEST_DATABASE_DSN")
+    isolated_data_run = not dsn and os.environ.get("RUN_DATA_SQL_TESTS") == "1"
+    if isolated_data_run:
+        from upstox_service.config.settings import Settings
+
+        dsn = Settings().timescale_dsn
     if not dsn:
         pytest.skip("Set PLATFORM_TEST_DATABASE_DSN to a disposable local platform_test_* database")
     parsed = urlsplit(dsn)
-    if parsed.hostname not in {"localhost", "127.0.0.1", "::1"} or not parsed.path.startswith(
-        "/platform_test_"
+    if parsed.hostname not in {"localhost", "127.0.0.1", "::1"} or not (
+        parsed.path.startswith("/platform_test_") or (isolated_data_run and parsed.path == "/stockgraph")
     ):
         pytest.fail("Integration database must be local and named platform_test_*")
     conn = await asyncpg.connect(dsn)

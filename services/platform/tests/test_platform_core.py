@@ -1,5 +1,6 @@
 """Offline access/publication safety checks and opt-in isolated PostgreSQL workflow."""
 
+import asyncio
 import json
 import os
 from contextlib import asynccontextmanager
@@ -10,6 +11,13 @@ from uuid import uuid4
 import asyncpg
 import httpx
 import pytest
+from marketgraph_platform.agent_repository import (
+    WorkConflict,
+    claim_job,
+    complete_job,
+    create_job,
+    register_evidence,
+)
 from marketgraph_platform.api import CanonicalClient, create_app
 from marketgraph_platform.auth import issue_token, token_digest
 from marketgraph_platform.models import ContributionInput, Principal
@@ -197,13 +205,44 @@ async def test_postgres_publication_correction_retraction_and_immutability():
             await repository.review(draft["id"], author, submitted["revision"], "APPROVE", "Self review")
         approved = await repository.review(draft["id"], reviewer, submitted["revision"], "APPROVE", "Evidence checked")
         assert len(await repository.published("RELIANCE")) == 1
+        await create_job(repository.pool,author_id,'discovery',{'tickers':['RELIANCE'],'window':'LAST_6M'},'pro-citation-test')
+        agent_job = await claim_job(repository.pool,Settings())
+        await register_evidence(repository.pool,agent_job['id'],agent_job['lease_token'],[{
+            'kind':'professional','id':str(approved['version_id']),'ticker':'RELIANCE',
+            'source':initial.model_dump(mode='json'),'quote_text':initial.body,
+            'eligible_until':initial.expires_at}])
+        pro_result = {'answer':'Demand may improve.','status':'supported','evidence':[{
+            'kind':'professional','id':str(approved['version_id']),'locator':None,'quote':'Demand may improve'}],
+            'alerts':[]}
+        # Outbox claims are atomic across relay replicas and abandoned leases
+        # recover without changing the event ID.
+        first_claim, second_claim = await asyncio.gather(repository.claim_outbox(),repository.claim_outbox())
+        claimed = first_claim + second_claim
+        assert len(claimed) == 1
+        await repository.pool.execute("UPDATE platform_outbox SET lease_until=now()-interval '1 second' WHERE event_id=$1",claimed[0]['event_id'])
+        recovered = await repository.claim_outbox()
+        assert recovered[0]['event_id'] == claimed[0]['event_id']
+        assert recovered[0]['lease_id'] != claimed[0]['lease_id']
+        await repository.finish_outbox(claimed[0]['event_id'],claimed[0]['lease_id'])
+        assert await repository.pool.fetchval("SELECT published_at FROM platform_outbox WHERE event_id=$1",claimed[0]['event_id']) is None
+        await repository.finish_outbox(recovered[0]['event_id'],recovered[0]['lease_id'])
         correction = await repository.add_version(draft["id"], author, contribution(direction="BEARISH"), approved["revision"])
         assert (await repository.published("RELIANCE"))[0]["content"]["direction"] == "BULLISH"
         submitted = await repository.submit(draft["id"], author, correction["revision"])
         approved = await repository.review(draft["id"], reviewer, submitted["revision"], "APPROVE", "Correction checked")
         assert (await repository.published("RELIANCE"))[0]["content"]["direction"] == "BEARISH"
+        with pytest.raises(WorkConflict,match='changed'):
+            await complete_job(repository.pool,agent_job['id'],agent_job['lease_token'],pro_result)
+        current = (await repository.published('RELIANCE'))[0]
+        await register_evidence(repository.pool,agent_job['id'],agent_job['lease_token'],[{
+            'kind':'professional','id':str(approved['version_id']),'ticker':'RELIANCE',
+            'source':current['content'],'quote_text':current['content']['body'],
+            'eligible_until':datetime.fromisoformat(current['content']['expires_at'])}])
+        pro_result['evidence'][0]['id'] = str(approved['version_id'])
         await repository.retract(draft["id"], author, approved["revision"], "Source withdrawn")
         assert await repository.published("RELIANCE") == []
+        with pytest.raises(WorkConflict,match='withdrawn'):
+            await complete_job(repository.pool,agent_job['id'],agent_job['lease_token'],pro_result)
         assert await repository.pool.fetchval("SELECT count(*) FROM platform_outbox") == 3
         assert await repository.pool.fetchval("SELECT count(*) FROM platform_contribution_versions") == 2
         await repository.set_verified(author_id, False)
@@ -213,6 +252,8 @@ async def test_postgres_publication_correction_retraction_and_immutability():
         status_event = json.loads(status_event) if isinstance(status_event, str) else status_event
         assert status_event['revision'] == 2 and status_event['payload']['verified'] is False
         assert await repository.pool.fetchval("SELECT count(*) FROM platform_outbox") == 4
+        await repository.measure(author_id,'professional_evidence_reads')
+        assert (await repository.usage(author_id))[0]['units'] == 1
         with pytest.raises(asyncpg.RaiseError):
             await repository.pool.execute("UPDATE platform_contribution_versions SET content='{}'")
     finally:

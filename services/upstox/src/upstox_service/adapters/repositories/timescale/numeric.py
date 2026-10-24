@@ -369,7 +369,7 @@ class TimescaleRepository:
             await conn.execute(
                 "INSERT INTO vendor_quotes_raw "
                 "(vendor_id, ticker, trade_date, series, payload, fetched_at) "
-                "SELECT $1, $2, $3, $4, $5::jsonb, $6 WHERE $5::jsonb IS DISTINCT FROM "
+                "SELECT $1::varchar, $2::varchar, $3::date, $4::varchar, $5::jsonb, $6::timestamptz WHERE $5::jsonb IS DISTINCT FROM "
                 "(SELECT payload FROM vendor_quotes_raw WHERE vendor_id=$1 AND ticker=$2 "
                 "AND trade_date=$3 AND series=$4 ORDER BY fetched_at DESC LIMIT 1) "
                 "ON CONFLICT (vendor_id, ticker, trade_date, series, fetched_at) DO NOTHING",
