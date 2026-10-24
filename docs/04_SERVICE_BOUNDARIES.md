@@ -9,8 +9,9 @@
 This specification supersedes the older single-service folder layout, combined
 dossier API, YAML-as-runtime-registry, selective macro baseline, and 30-minute
 cadence in documents 01–03. Phase 2 trading decisions and order execution remain
-deferred. Deployable code lives exclusively under `services/`; repository-root
-scripts and tests are cross-service operational tooling, not deployment entrypoints.
+deferred. Backend services live under `services/`; the separate Next.js frontend
+lives under `frontend/`. Repository-root scripts and tests are cross-service
+operational tooling, not backend deployment entrypoints.
 
 ## Ownership and layout
 
@@ -89,6 +90,13 @@ pagination), `GET /api/v1/stocks/{ticker}` (company profile),
 unregistered equity may populate these SQL tables but does not register it or
 publish a graph event. A separate daily 06:00 IST job refreshes the NSE/BSE
 equity universe from Upstox's published instrument files.
+
+For local development, `uv run --package upstox-service python
+scripts/populate_sample_stocks.py` manually refreshes that SQL equity directory,
+then registers `LT` and `AXISBANK` through the normal Data Service job and graph
+outbox flow. Pass `--symbols TCS INFY` to choose other official symbols, or
+`--skip-universe-refresh` to use the current directory. The script skips stocks
+already projected in FalkorDB and waits for each registration job to finish.
 
 On-demand endpoints are `GET /api/v1/option-chains/expiries`,
 `GET /api/v1/option-chains`, `GET /api/v1/market/smartlists/{kind}` for MTF,

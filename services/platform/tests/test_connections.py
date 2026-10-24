@@ -51,3 +51,42 @@ def test_gateway_retains_fixed_snapshot_and_never_hides_professional_evidence(mo
     assert calls == [('/api/v1/stocks/RELIANCE/context',{'window':'LAST_1Y','limit':50,'offset':50,'as_of_ts':123456789})]
     assert client.get('/api/v1/stocks/RELIANCE/connections?from_date=2020-01-01',headers=headers).status_code == 422
     assert client.get('/api/v1/stocks/RELIANCE/connections?window=ALL_TIME',headers=headers).status_code == 422
+
+
+def test_market_gateway_proxies_authenticated_search_profile_and_candles():
+    calls = []
+
+    class CanonicalClient:
+        async def get(self, path, params=None):
+            calls.append((path, params))
+            return {'items': []} if path.endswith('/stocks') else {'candles': []}
+
+    client = TestClient(create_app(Settings(_env_file=None),Repository(),CanonicalClient()))
+    headers = {'Authorization':'Bearer fixture-token'}
+    assert client.get('/api/v1/market/stocks?query=INFY&exchange=NSE&limit=20',headers=headers).json() == {'items':[]}
+    assert client.get('/api/v1/market/stocks/INFY?exchange=NSE',headers=headers).status_code == 200
+    assert client.get('/api/v1/market/stocks/INFY/candles?exchange=NSE&from=2025-01-01&to=2025-06-30',headers=headers).json() == {'candles':[]}
+    assert calls == [
+        ('/api/v1/stocks', {'query':'INFY','limit':20,'exchange':'NSE'}),
+        ('/api/v1/stocks/INFY', {'exchange':'NSE'}),
+        ('/api/v1/stocks/INFY/candles', {'exchange':'NSE','from':'2025-01-01','to':'2025-06-30'}),
+    ]
+    assert client.get('/api/v1/market/stocks').status_code == 401
+
+
+def test_graph_stock_registration_is_authenticated_and_async(monkeypatch):
+    calls = []
+
+    async def submit(request, path, payload):
+        calls.append((path, payload))
+        return {'job_id':'job-123','status':'pending'}
+
+    monkeypatch.setattr('marketgraph_platform.connections_api.graph_post',submit)
+    client = TestClient(create_app(Settings(_env_file=None),Repository(),object()))
+    body = {'query':'INFY','exchange':'NSE','strengths':[],'business_exclusions':[]}
+    assert client.post('/api/v1/market/stock-registrations',json=body).status_code == 401
+    response = client.post('/api/v1/market/stock-registrations',json=body,
+                           headers={'Authorization':'Bearer fixture-token'})
+    assert response.status_code == 202
+    assert response.json()['job_id'] == 'job-123'
+    assert calls == [('/api/v1/stocks',body)]

@@ -11,16 +11,18 @@ recreating an existing Timescale container: the corrected volume mount requires
 a verified migration of any data written outside the old mount.
 
 Start with [the service architecture and operating guide](docs/04_SERVICE_BOUNDARIES.md)
-for the folder structure, API examples, Upstox OOP design, deployment commands,
-failure recovery and safe backup/reset procedure. Deployable code lives only
-under `services/`; the repository root contains shared contracts, operations
-scripts, documentation, and cross-service tests.
+for the backend boundaries, API examples, deployment commands, failure recovery
+and safe backup/reset procedure. Backend services live under `services/`; the
+separate Next.js frontend lives under `frontend/`.
 
 ```powershell
 uv sync --all-packages --group dev --inexact
 docker compose up -d --build
 uv run --all-packages pytest -q
 ```
+
+Compose serves the Next.js frontend at `http://localhost:3000` (override with
+`FRONTEND_PORT`).
 
 Graph API: `http://localhost:8000/docs`; data API: `http://localhost:8001/docs`;
 Platform API: `http://localhost:8002/docs` and connections page:
@@ -30,6 +32,19 @@ semantic processing; offline/failed inference is visibly incomplete, not success
 All implemented features are free. RBAC and Pine Labs integration are Phase 2.
 External research/discovery agents run separately and connect through leased APIs;
 there is no live trading execution.
+
+For local frontend development outside Compose, install dependencies and run:
+
+```powershell
+cd frontend
+npm.cmd install
+npm.cmd run dev
+```
+
+Open `http://localhost:3000`. The frontend proxies same-origin `/api/*` calls to
+the Platform API (`http://127.0.0.1:8002` by default); set
+`MARKETGRAPH_PLATFORM_URL` in `frontend/.env.local` when it is hosted elsewhere.
+The stock workspace uses an operator-provisioned token, kept only in page memory.
 
 To verify the configured Upstox token without persisting data or publishing a
 graph event, run the provider smoke test from the repository root:

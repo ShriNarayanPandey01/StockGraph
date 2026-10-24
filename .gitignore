@@ -161,6 +161,7 @@ venv/
 ENV/
 env.bak/
 venv.bak/
+track-wireframe/
 
 # Spyder project settings
 .spyderproject

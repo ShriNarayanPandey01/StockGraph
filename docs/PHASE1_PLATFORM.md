@@ -156,19 +156,27 @@ Retries and the same canonical event/material version do not duplicate alerts.
 Telegram/WhatsApp delivery and their consent flows remain follow-on integrations;
 the current delivery channel is the durable in-app feed.
 
-## Stock Connections Explorer
+## Next.js research workspace
 
-Open `http://localhost:8002/connections`, enter a registered ticker and your token.
-The token stays only in the page, never browser storage. The frontend calls the
-authenticated same-origin `/api/v1/stocks/{ticker}/connections` gateway, which
-uses the existing graph-context contract.
+The separate Next.js App Router frontend is in `frontend/` and follows the
+TRACK wireframe. Compose serves it at `http://localhost:3000`; for local
+development, run `npm.cmd install` and `npm.cmd run dev` from that directory.
+It serves the Platform API through a same-origin `/api/*` rewrite;
+`MARKETGRAPH_PLATFORM_URL` defaults to `http://127.0.0.1:8002`. An
+operator-provisioned token is held only in page memory and must be entered again
+after a reload.
 
-The grouped/filterable list shows stocks, news/events, commodities, sectors,
-macro factors and professional views with direction, rationale, confidence,
-timestamps and source links. It preserves `pagination.as_of_ts` while following
-`next_offset`. An expired snapshot requires a fresh search. It shows partial
-processing, empty, loading and failure states. It is an accessible connection
-list, not a complete market-map or candlestick-chart product.
+The workspace searches the Data Service stock catalog, displays company data
+and dated daily candles with vendor attribution, and uses the authenticated
+Platform gateway for graph context, stock registration, professional evidence,
+watchlists, research and discovery jobs, monitors, and in-app alerts. Graph
+pagination preserves `pagination.as_of_ts`. Loading, processing, empty, and
+failure states are explicit. Agent jobs can remain queued until the separately
+hosted external agent claims them. Market relationships provide context and do
+not establish causation or issue orders.
+
+The existing `http://localhost:8002/connections` page remains available as a
+small compatibility view for the graph connection-list API.
 
 ## Backup, restore and validation
 
