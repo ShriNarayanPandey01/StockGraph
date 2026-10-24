@@ -39,3 +39,34 @@ In AgenticOrg, register a custom connector with **MCP enabled**, the HTTPS URL, 
 The remote gateway exposes `get_stock_graph_context(ticker, window, offset, limit, as_of_ts)` only, with fixed `LAST_6M` / `LAST_1Y` windows and bounded pagination. The original local stdio MCP implementation remains unchanged. No trading, SQL, Cypher, database writes, or order execution is exposed.
 
 **Note:** This token protects the gateway only. The upstream graph REST API must be secured separately before public production deployment.
+
+
+## Separate Data MCP gateway
+
+The Data service (Upstox/FastAPI on port 8001) has a separate MCP gateway. The Data MCP implementation is under `services/stockgraph/src/stockgraph/adapters/api/data_mcp.py` and uses the MCP SDK already installed in the stockgraph Python package; this is a proxy only, **not** direct database access or a dependency on the graph database.
+
+For local Docker Compose:
+
+```dotenv
+DATA_MCP_BEARER_TOKEN=another-long-random-secret
+DATA_MCP_PORT=8004
+```
+
+```sh
+docker compose up -d --build data-api data-mcp
+```
+
+Use `http://127.0.0.1:8004/mcp` as the local endpoint.
+
+For Render, create a **separate Docker Web Service** from repository root using `services/stockgraph/Dockerfile.data-mcp`, and set:
+
+- `DATA_SERVICE_URL=https://data-api-public.onrender.com` (or the actual deployed Data API base URL)
+- `MCP_BEARER_TOKEN=<another strong secret>`
+- `DATA_UPSTREAM_API_KEY` only if the Data API actually supports that authentication mechanism
+- `PORT` is supplied by Render
+
+Its MCP endpoint is `https://<your-data-mcp-service>.onrender.com/mcp`.
+
+Data MCP tools are `get_stock_financial_history`, `get_stock_profile` and `get_stock_candles`. All are read-only HTTP calls to existing Data API endpoints. Candle filters are `from_date` and `to_date` (ISO dates), matching the REST API's `from`/`to` parameters. Data-service provider credentials, SQL credentials, stock registration and trade execution are not exposed as MCP tools.
+
+Register the **Graph MCP** and **Data MCP** as two AgenticOrg connectors, each with its own HTTPS URL and authentication secret. If AgenticOrg cannot supply a static bearer token for a custom remote MCP connector, its authentication configuration must be resolved before exposure; do not disable authentication.
