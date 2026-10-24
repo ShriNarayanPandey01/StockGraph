@@ -44,11 +44,22 @@ async def get_stock_profile(ticker: str) -> dict:
 
 
 @mcp.tool()
-async def get_stock_candles(ticker: str, limit: int = 50) -> dict:
-    """Read up to 200 daily stock candles from the SQL-owned data service."""
-    if not 1 <= limit <= 200:
-        raise ValueError("Invalid limit")
-    return await _get(f"/api/v1/stocks/{_ticker(ticker)}/candles", {"limit": limit})
+async def get_stock_candles(ticker: str, from_date: str = "", to_date: str = "") -> dict:
+    """Read daily OHLCV candles. Optional from_date/to_date use ISO YYYY-MM-DD."""
+    from datetime import date
+
+    if from_date:
+        date.fromisoformat(from_date)
+    if to_date:
+        date.fromisoformat(to_date)
+    if from_date and to_date and from_date > to_date:
+        raise ValueError("from_date must not exceed to_date")
+    params = {}
+    if from_date:
+        params["from"] = from_date
+    if to_date:
+        params["to"] = to_date
+    return await _get(f"/api/v1/stocks/{_ticker(ticker)}/candles", params)
 
 
 def main() -> None:
