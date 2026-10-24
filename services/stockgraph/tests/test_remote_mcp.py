@@ -65,3 +65,20 @@ async def test_read_only_graph_context(monkeypatch):
 async def test_invalid_arguments(kwargs):
     with pytest.raises(ValueError):
         await remote_mcp.get_stock_graph_context(**kwargs)
+
+
+def test_api_key_header_passes_authentication():
+    from starlette.applications import Starlette
+    from starlette.responses import JSONResponse
+    from starlette.routing import Route
+
+    async def sample(request):
+        return JSONResponse({"ok": True})
+
+    app = remote_mcp.BearerProtectedApp(
+        Starlette(routes=[Route("/test", sample)]), "test-secret"
+    )
+    with TestClient(app) as client:
+        assert client.get("/test", headers={"X-API-Key": "test-secret"}).status_code == 200
+        assert client.get("/test", headers={"Authorization": "Bearer test-secret"}).status_code == 200
+        assert client.get("/test", headers={"X-API-Key": "incorrect"}).status_code == 401
