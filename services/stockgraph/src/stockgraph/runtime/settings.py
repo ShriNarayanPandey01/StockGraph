@@ -19,6 +19,7 @@ class Settings(BaseSettings):
     event_retry_idle_ms: int = Field(default=60000, ge=1000)
     event_lease_seconds: int = Field(default=1800, ge=60)
     pagination_snapshot_max_age_seconds: int = Field(default=3600, ge=60, le=86400)
+    public_graph_cache_ttl_seconds: int = Field(default=300, ge=1, le=3600)
     embedding_dimension: int = Field(default=1536, ge=1)
     embedding_model: str = "text-embedding-3-small"
     llm_enabled: bool = False

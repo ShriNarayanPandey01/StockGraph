@@ -14,12 +14,13 @@ from stockgraph.adapters.llm.providers import LiteLLMChatProvider
 from stockgraph.adapters.messaging.consumer import renewable_lock
 from stockgraph.adapters.repositories.falkor.repository import GraphRepository
 from stockgraph.application.graph_queries.context import GraphContextService
+from stockgraph.application.graph_queries.public_preview import PublicMarketGraphService
 from stockgraph.application.processors.news_eligibility import (
     GraphNewsEligibilityReviewer,
     NewsEligibilityRequest,
     NewsEligibilityVerdict,
 )
-from stockgraph.domain.context import GraphContextResponse
+from stockgraph.domain.context import GraphContextResponse, PublicMarketGraphResponse
 from stockgraph.domain.developer import (
     DeveloperEdgeCreate,
     DeveloperEdgeDeleteResponse,
@@ -57,6 +58,7 @@ def create_app(
         data_client if data_client is not None else DataServiceClient(settings.data_service_url)
     )
     app.state.context = GraphContextService(app.state.repo)
+    app.state.public_market_graph = PublicMarketGraphService(app.state.repo)
     app.state.eligibility_reviewer = eligibility_reviewer or GraphNewsEligibilityReviewer(
         LiteLLMChatProvider(app.state.broker)
     )
@@ -224,5 +226,31 @@ def create_app(
             raise HTTPException(
                 404, "Stock is not yet projected; check its registration job"
             ) from exc
+
+    @app.get("/api/v1/public/market-graph", response_model=PublicMarketGraphResponse)
+    async def public_market_graph(request: Request) -> PublicMarketGraphResponse:
+        """Return a small cached graph intended for a public frontend canvas."""
+        if request.query_params:
+            raise HTTPException(422, "This public graph preview does not accept query parameters")
+        cache_key = "stockgraph:public-market-graph:v1"
+        try:
+            cached = await asyncio.to_thread(app.state.broker.get, cache_key)
+            if cached:
+                if isinstance(cached, bytes):
+                    cached = cached.decode()
+                return PublicMarketGraphResponse.model_validate_json(cached)
+        except Exception:
+            pass
+        preview = await asyncio.to_thread(app.state.public_market_graph.get_preview)
+        try:
+            await asyncio.to_thread(
+                app.state.broker.set,
+                cache_key,
+                preview.model_dump_json(),
+                ex=settings.public_graph_cache_ttl_seconds,
+            )
+        except Exception:
+            pass
+        return preview
 
     return app

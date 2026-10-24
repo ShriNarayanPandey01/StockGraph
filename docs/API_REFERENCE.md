@@ -182,6 +182,48 @@ GET /api/v1/stocks/RELIANCE/context?window=LAST_1Y&limit=50&offset=50&as_of_ts=1
 A stock that has not been projected returns `404`. An expired or future
 `as_of_ts` returns `422`.
 
+### Public market-graph preview
+
+`GET /api/v1/public/market-graph` returns one small, frontend-ready market
+graph with no query parameters. It is not a graph browser or stock dossier.
+The service selects up to 15 recently active, connected stocks from a rolling
+30-day window, up to 10 linked Commodity/MacroFactor/Sector nodes, up to 15
+canonical news nodes, and no more than 60 user-facing edges. Permanent broad
+macro-baseline, duplicate, lifecycle/version, and developer-only links are
+excluded. The response is cached for five minutes by default.
+
+```http
+GET http://localhost:8000/api/v1/public/market-graph
+```
+
+```json
+{
+  "generated_at": 1761234567,
+  "start_ts": 1758642567,
+  "end_ts": 1761234567,
+  "selection": {
+    "stock_target": 15,
+    "stock_count": 12,
+    "market_driver_count": 8,
+    "news_count": 11,
+    "edge_count": 37,
+    "is_partial": true
+  },
+  "nodes": [
+    {"id": "Stock:RELIANCE", "kind": "Stock", "properties": {"name": "Reliance Industries Ltd"}},
+    {"id": "Commodity:BRENT_CRUDE", "kind": "Commodity", "properties": {"name": "Brent Crude"}},
+    {"id": "NewsEvent:news-sha1-id", "kind": "NewsEvent", "properties": {"headline": "Oil supply update"}}
+  ],
+  "edges": [
+    {"id": "...", "source": "Stock:RELIANCE", "target": "Commodity:BRENT_CRUDE", "relation": "EXPOSED_TO", "confidence": 0.88}
+  ]
+}
+```
+
+`selection.is_partial` is true whenever the eligible graph does not contain
+enough stocks, market-driver nodes, or recent news to fill the compact target.
+Unknown query parameters return `422`.
+
 ### Manual graph ingestion
 
 The graph service offers manual-ingestion endpoints, but they deliberately do
