@@ -98,6 +98,40 @@ outbox flow. Pass `--symbols TCS INFY` to choose other official symbols, or
 `--skip-universe-refresh` to use the current directory. The script skips stocks
 already projected in FalkorDB and waits for each registration job to finish.
 
+### Render one-off stock population
+
+Run `scripts/populate_sample_stocks.py` as a **one-off job based on the
+`data-api` service**, after deploying the updated Data Service image. The
+Upstox Dockerfile includes this script at `/app/scripts/populate_sample_stocks.py`.
+Do not use it as the Data API's start command or pre-deploy command: it exits
+after each run and writes stock-directory and registration data.
+
+Set `DATA_API_INTERNAL_URL` and `GRAPH_API_INTERNAL_URL` on the `data-api`
+service to the internal URLs shown in each service's Render Connect panel, with
+the host and port that Render reports. Keep these services and their databases
+in the same Render region. The one-off job inherits the base service's
+environment, so it also needs `TIMESCALE_DSN`, `REDIS_URL`, and a valid
+`UPSTOX_ANALYTICS_TOKEN` (or `UPSTOX_AUTHTOKEN`). Ensure `data-api`,
+`graph-api`, `data-worker`, and `graph-worker` are running before starting it.
+
+Set the one-off job's start command to:
+
+```sh
+sh -lc 'python /app/scripts/populate_sample_stocks.py \
+  --data-url "$DATA_API_INTERNAL_URL" \
+  --graph-url "$GRAPH_API_INTERNAL_URL" \
+  --symbols LT AXISBANK'
+```
+
+The default run refreshes the full NSE/BSE equity directory in TimescaleDB,
+then registers only the requested tickers through the normal data and graph
+workers. It does not fetch complete financial history for every directory
+entry. `data-scheduler` already refreshes the directory daily at 06:00 IST; if
+that refresh has completed, pass `--skip-universe-refresh` to avoid repeating
+it. Re-running with the same symbols is safe and skips completed graph
+projections. MCP, Platform, and database services are not where this script
+runs; the script reaches the Data and Graph APIs over Render's private network.
+
 On-demand endpoints are `GET /api/v1/option-chains/expiries`,
 `GET /api/v1/option-chains`, `GET /api/v1/market/smartlists/{kind}` for MTF,
 options and futures, `GET /api/v1/market/institutional-flows` for FII/DII,
