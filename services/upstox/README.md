@@ -2,7 +2,9 @@
 
 This independently installed service owns PostgreSQL/TimescaleDB. It does not
 import StockGraph, FalkorDB, or an LLM SDK. Upstox credentials are encapsulated in
-the read-only HTTP adapter and must be supplied through `UPSTOX_ANALYTICS_TOKEN`.
+the read-only HTTP adapter. Shared ingestion uses `UPSTOX_ANALYTICS_TOKEN`
+(or `UPSTOX_AUTHTOKEN`); on-demand requests can use an encrypted personal token
+forwarded by Platform. No order execution is implemented.
 
 ## Processes
 
@@ -14,6 +16,11 @@ the read-only HTTP adapter and must be supplied through `UPSTOX_ANALYTICS_TOKEN`
 
 Run locally with `uv run --package upstox-service upstox-api`, or use the root
 Docker Compose stack. The worker and scheduler are separate processes from API.
+
+Domain routes require `X-Internal-Service-Key` matching
+`MARKETGRAPH_INTERNAL_SERVICE_KEY`; internal clients and population scripts
+need that environment key. User-facing requests pass through Platform policy.
+Personal credentials never replace the scheduler/registration ingestion token.
 
 ## REST contract
 
@@ -37,6 +44,8 @@ not in this descriptive catalog API.
 
 ## OOP boundaries
 
+See [the Data Service system design and class diagram](../../docs/architecture/data-service.md).
+
 `RegistrationWorker` depends on the `CompanyProvider` interface and a repository.
 `UpstoxCompanyProvider` composes official instrument resolution, company profile,
 statement reads, and completed daily checkpoints through `UpstoxClient`; the
@@ -52,7 +61,5 @@ at-least-once, ordered by outbox sequence; consumers must deduplicate event IDs.
 
 ## Tests
 
-`uv run pytest services/upstox/tests` runs offline tests. Set
-`RUN_DATA_SQL_TESTS=1` to include the real SQL smoke test: it creates an isolated
-schema inside an outer transaction and rolls everything back, without changing
-application rows. See `migrations/README.md` for schema ownership.
+`uv run pytest services/upstox/tests` runs offline tests.
+See `migrations/README.md` for schema ownership.

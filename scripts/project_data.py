@@ -194,6 +194,8 @@ async def ensure_standalone_reset_safe(settings: ProjectDataSettings) -> None:
             "platform_tokens",
             "platform_usage",
             "platform_request_buckets",
+            # These are immutable startup defaults and do not reference Data rows.
+            "platform_plan_policies",
         }
         for table in PLATFORM_TABLES:
             if table in independent:

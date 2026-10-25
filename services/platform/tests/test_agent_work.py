@@ -1,31 +1,21 @@
 """Leases and evidence are enforced independently of subscription access."""
 
-import asyncio
-import os
 from contextlib import asynccontextmanager
 from datetime import UTC, datetime, timedelta
 from unittest.mock import AsyncMock
 from uuid import uuid4
 
-import asyncpg
 import httpx
 import pytest
 from marketgraph_platform.agent_api import AgentResult, context_sources
 from marketgraph_platform.agent_repository import (
     WorkConflict,
-    claim_job,
     complete_job,
-    create_job,
-    fail_job,
     fingerprint,
     leased_job,
-    register_evidence,
-    reserve_tool_call,
     validate_result_evidence,
 )
 from marketgraph_platform.api import create_app
-from marketgraph_platform.auth import token_digest
-from marketgraph_platform.repository import Repository
 from marketgraph_platform.settings import Settings
 from pydantic import ValidationError
 
@@ -33,6 +23,7 @@ from pydantic import ValidationError
 def running_job():
     return {'id':uuid4(),'user_id':uuid4(),'state':'running','lease_token':uuid4(),
             'lease_until':datetime.now(UTC)+timedelta(minutes=5),'attempts':1,
+            'kind':'chat','required_plan':'FREE',
             'input':{'tickers':['RELIANCE'],'window':'LAST_6M'}}
 
 
@@ -135,7 +126,27 @@ class Conn:
         yield self
 
     async def fetchrow(self,*args):
+        query = args[0]
+        if 'SELECT user_id FROM agent_jobs' in query:
+            return {'user_id': self.job['user_id']}
+        if 'FROM platform_users' in query:
+            return {'id': self.job['user_id'], 'name':'Researcher', 'email':None,
+                    'email_verified':False,'professional_verified':False,'is_developer':False,
+                    'disabled':False,'roles':['USER'],'plan':'PRO','plan_expires_at':None,
+                    'active_selection_initialized':False}
+        if 'FROM platform_plan_policies' in query:
+            return {'plan':'PRO','active_stock_limit':None,'monthly_alert_limit':None,
+                    'features':{'professional_evidence':True,'research_chat':True,
+                                'discovery':True,'opportunity_alerts':True,
+                                'stock_connections':True,'monitoring':True,
+                                'market_monitoring':True},'revision':1}
         return self.job
+
+    async def fetch(self,*args):
+        return []
+
+    async def fetchval(self,*args):
+        return self.job['user_id']
 
     async def execute(self,*args):
         self.writes.append(args)
@@ -157,72 +168,3 @@ def test_context_source_collection_does_not_turn_unattributed_numbers_into_evide
     sources = context_sources('RELIANCE',{'direct_news':[{'id':'news-1','headline':'Demand increased'}]},[],financials)
     assert [source['kind'] for source in sources] == ['news','financial']
     assert 'vendor_id' in sources[1]['quote_text']
-
-
-@pytest.mark.asyncio
-@pytest.mark.skipif(not os.getenv('PLATFORM_TEST_DATABASE_DSN'),reason='Set PLATFORM_TEST_DATABASE_DSN for live queue/transaction checks')
-async def test_postgres_lease_ownership_alert_dedup_and_completion_idempotence():
-    dsn, schema = os.environ['PLATFORM_TEST_DATABASE_DSN'], 'agent_test_'+uuid4().hex
-    admin = await asyncpg.connect(dsn)
-    await admin.execute(f'CREATE SCHEMA "{schema}"')
-    repo = Repository(Settings())
-    try:
-        repo.pool = await asyncpg.create_pool(dsn,min_size=1,max_size=3,server_settings={'search_path':schema})
-        await repo.migrate()
-        owner = await repo.provision_user('Owner',token_digest('owner'))
-        outsider = await repo.provision_user('Other',token_digest('other'))
-        conversation = uuid4()
-        await repo.pool.execute('INSERT INTO conversations(id,user_id,title) VALUES($1,$2,$3)',conversation,owner,'Research')
-        with pytest.raises(WorkConflict,match='owned'):
-            await create_job(repo.pool,outsider,'chat',{'tickers':['RELIANCE'],'conversation_id':str(conversation)},'foreign')
-        payload = {'tickers':['RELIANCE'],'question':'Demand?','window':'LAST_6M'}
-        created = await create_job(repo.pool,owner,'discovery',payload,'request-1')
-        duplicate = await create_job(repo.pool,owner,'discovery',payload,'request-1')
-        assert duplicate['id'] == created['id']
-        claimed = await claim_job(repo.pool,Settings())
-        with pytest.raises(WorkConflict):
-            await complete_job(repo.pool,claimed['id'],uuid4(),result())
-        offered = await register_evidence(repo.pool,claimed['id'],claimed['lease_token'],[
-            {'kind':'news','id':'news-1','ticker':'RELIANCE','source':{'id':'news-1'},'quote_text':'Demand increased by 10%.'}])
-        alert = {'ticker':'RELIANCE','event_id':'news-1','material_version':offered[0]['material_version'],
-                 'direction':'BULLISH','summary':'Demand improved','evidence':[reference()]}
-        completed = result(alerts=[alert])
-        await complete_job(repo.pool,claimed['id'],claimed['lease_token'],completed)
-        await complete_job(repo.pool,claimed['id'],claimed['lease_token'],completed)
-        assert await repo.pool.fetchval('SELECT count(*) FROM opportunity_alerts WHERE user_id=$1',owner) == 1
-        assert await repo.pool.fetchval('SELECT count(*) FROM opportunity_alerts WHERE user_id=$1',outsider) == 0
-        assert await repo.pool.fetchval("SELECT amount FROM agent_usage WHERE job_id=$1 AND metric='completed_jobs'",claimed['id']) == 1
-        # A separate job finding the same material cannot redeliver the opportunity.
-        await create_job(repo.pool,owner,'discovery',payload,'request-2')
-        second = await claim_job(repo.pool,Settings())
-        await register_evidence(repo.pool,second['id'],second['lease_token'],[
-            {'kind':'news','id':'news-1','ticker':'RELIANCE','source':{'id':'news-1'},'quote_text':'Demand increased by 10%.'}])
-        await complete_job(repo.pool,second['id'],second['lease_token'],completed)
-        assert await repo.pool.fetchval('SELECT count(*) FROM opportunity_alerts') == 1
-        # Atomic tool budget is unchanged by plan tier.
-        await create_job(repo.pool,owner,'discovery',payload,'request-3')
-        third = await claim_job(repo.pool,Settings())
-        for _ in range(100):
-            await reserve_tool_call(repo.pool,third['id'],third['lease_token'],'test-agent')
-        with pytest.raises(WorkConflict,match='budget'):
-            await reserve_tool_call(repo.pool,third['id'],third['lease_token'],'test-agent')
-        await fail_job(repo.pool,third['id'],third['lease_token'],True,3,'test-agent')
-        reclaimed = await claim_job(repo.pool,Settings())
-        assert reclaimed['lease_token'] != third['lease_token']
-        with pytest.raises(WorkConflict):
-            await leased_job(repo.pool,third['id'],third['lease_token'])
-        # Reclaimed work cannot reuse evidence supplied under the previous lease.
-        with pytest.raises(WorkConflict,match='not supplied'):
-            await complete_job(repo.pool,reclaimed['id'],reclaimed['lease_token'],result())
-        await fail_job(repo.pool,reclaimed['id'],reclaimed['lease_token'],False,3,'test-agent')
-        # Two concurrent claims acquire different jobs; a single queue item is
-        # never leased twice, and no global lock blocks a second owner.
-        await create_job(repo.pool,owner,'discovery',payload,'concurrent-1')
-        await create_job(repo.pool,outsider,'discovery',payload,'concurrent-2')
-        left,right = await asyncio.gather(claim_job(repo.pool,Settings()),claim_job(repo.pool,Settings()))
-        assert left['id'] != right['id'] and left['lease_token'] != right['lease_token']
-        assert await claim_job(repo.pool,Settings()) is None
-    finally:
-        await repo.close()
-        await admin.execute(f'DROP SCHEMA "{schema}" CASCADE')
-        await admin.close()

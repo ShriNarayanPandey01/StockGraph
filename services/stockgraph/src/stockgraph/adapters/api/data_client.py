@@ -3,6 +3,7 @@
 from typing import Any
 
 import httpx
+from stockgraph.runtime.settings import settings
 
 
 class DataServiceClient:
@@ -12,7 +13,8 @@ class DataServiceClient:
 
     async def request(self, method: str, path: str, payload: dict | None = None) -> dict:
         async with httpx.AsyncClient(
-            base_url=self._base_url, transport=self._transport, timeout=30
+            base_url=self._base_url, transport=self._transport, timeout=30,
+            headers={"X-Internal-Service-Key": settings.internal_service_key.get_secret_value()}
         ) as client:
             response = await client.request(method, path, json=payload)
             response.raise_for_status()

@@ -1,7 +1,9 @@
-"""Opaque tokens are provisioned by an operator; only their digests are stored."""
+"""Opaque bearer authentication and application-role dependencies."""
 
 import hashlib
+import json
 import secrets
+from datetime import UTC, datetime
 
 from fastapi import Header, HTTPException, Request
 
@@ -24,6 +26,27 @@ async def current_user(request: Request, authorization: str | None = Header(defa
     principal = await request.app.state.repository.authenticate(token_digest(token))
     if principal is None:
         raise HTTPException(401, "Valid bearer token required", headers={"WWW-Authenticate": "Bearer"})
-    if not await request.app.state.repository.allow_request(principal["id"]):
+    principal = dict(principal)
+    if isinstance(principal.get("roles"), str):
+        principal["roles"] = json.loads(principal["roles"])
+    user = Principal.model_validate(principal)
+    if user.disabled or (user.email is not None and not user.email_verified):
+        raise HTTPException(401, "Valid bearer token required", headers={"WWW-Authenticate": "Bearer"})
+    if user.plan_expires_at is not None and user.plan_expires_at <= datetime.now(UTC) and not user.is_developer:
+        user = user.model_copy(update={"plan": "FREE"})
+    if not user.is_developer and not await request.app.state.repository.allow_request(user.id):
         raise HTTPException(429, "Operational request budget exceeded", headers={"Retry-After": "60"})
-    return Principal.model_validate(principal)
+    request.state.user = user
+    return user
+
+
+def require_developer(user: Principal) -> Principal:
+    if not user.is_developer:
+        raise HTTPException(403, "Developer access required")
+    return user
+
+
+def require_role(user: Principal, *roles: str) -> Principal:
+    if not user.is_developer and not set(roles).intersection(user.roles):
+        raise HTTPException(403, "Role permission required")
+    return user

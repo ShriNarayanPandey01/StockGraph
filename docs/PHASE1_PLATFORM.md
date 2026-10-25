@@ -1,4 +1,8 @@
-# MarketGraph Phase 1 implementation and operations
+# Original platform implementation and operations
+
+> Current account, permission and broker behavior is defined by
+> [Phase 2 operations](PHASE2_PLATFORM.md). The original unrestricted-access
+> policy below has been replaced; database ownership/recovery guidance remains.
 
 This document extends `04_SERVICE_BOUNDARIES.md`. The Data and Graph services
 keep their existing ownership. `services/platform` is a third independently
@@ -6,18 +10,13 @@ deployable package; its database is ordinary PostgreSQL on the same server.
 
 ## Current release policy
 
-All implemented features are free: professional evidence, research chat,
-discovery, monitors, in-app alerts and stock connections. There is no payment
-integration, RBAC implementation, subscription check or product quota.
-Authentication, ownership, canonical identity checks, independent review and
-provider/model/queue budgets still apply. Future PRO classifications are metadata.
-Future Free limits (10 active stocks, 10 alerts per IST calendar month) are
-documented by `/api/v1/access-policy` but not enforced.
-
-Pine Labs, subscription enforcement and RBAC are Phase 2. Historical replay,
-live trading and autonomous order execution are not implemented. External agents
-are hosted/developed separately; this repository supplies leased work and tools,
-not a replacement trading agent or an internet scraper per user.
+The platform now enforces Free/Pro permissions and selected-stock/alert limits.
+The environment-managed developer account has all supported application access,
+including self-approval. Other publication requires authorized independent review.
+Payments are disabled; the future provider is undecided. Historical replay and
+order execution remain deferred. Agents may
+continue running separately; `services/agents/` is only a future-agent scaffold.
+See [Phase 2](PHASE2_PLATFORM.md) for authentication, migration and quota details.
 
 ## Ownership and deployments
 
@@ -64,12 +63,13 @@ The provisioning CLI prints an opaque token once. Only its SHA-256 digest is
 stored. Use `Authorization: Bearer <token>`, keep tokens out of URLs/logs, and
 use the operator CLI for rotation or professional verification/revocation.
 There is no default token, anonymous user impersonation or self-verification API.
-RBAC is deferred: another authenticated person can review a submitted version;
-self-review is rejected, and private drafts remain author-owned. This Phase 1
-review workflow is intended for a trusted research cohort, not a public review
-marketplace. TLS and private infrastructure networking are deployment concerns.
+The developer assigns reviewer permissions. Non-developer self-review is rejected;
+the developer can override publication and ownership restrictions with an audit
+record. Public signup and SMTP verification are described in Phase 2. TLS and
+private infrastructure networking remain deployment concerns.
 
-Local processes use `.env.example` as a reference; `.env` is never rewritten.
+Local processes use `.env.example` as a reference. Local developer setup may
+initialize missing secrets in ignored `.env` without displaying them.
 Set `PLATFORM_DATABASE_DSN`, `PLATFORM_REDIS_URL` (6380 locally), and service URLs.
 Run `uv run --package marketgraph-platform marketgraph-platform migrate`, then:
 
@@ -85,7 +85,7 @@ internal/development interfaces and must be protected by network controls.
 
 Create a draft with canonical ticker, title/body, direction, horizon, event time,
 future expiry, disclosures and one or more citations. Submit a frozen version,
-then have a different authenticated user approve it. The author must have active
+then have an assigned independent reviewer approve it (the developer can self-approve). The author must have active
 professional verification. Mutations use expected revisions; draft creation uses
 an idempotency key. Publication and its outbox event commit together.
 
@@ -156,27 +156,16 @@ Retries and the same canonical event/material version do not duplicate alerts.
 Telegram/WhatsApp delivery and their consent flows remain follow-on integrations;
 the current delivery channel is the durable in-app feed.
 
-## Next.js research workspace
+## Client applications
 
-The separate Next.js App Router frontend is in `frontend/` and follows the
-TRACK wireframe. Compose serves it at `http://localhost:3000`; for local
-development, run `npm.cmd install` and `npm.cmd run dev` from that directory.
-It serves the Platform API through a same-origin `/api/*` rewrite;
-`MARKETGRAPH_PLATFORM_URL` defaults to `http://127.0.0.1:8002`. An
-operator-provisioned token is held only in page memory and must be entered again
-after a reload.
-
-The workspace searches the Data Service stock catalog, displays company data
-and dated daily candles with vendor attribution, and uses the authenticated
-Platform gateway for graph context, stock registration, professional evidence,
-watchlists, research and discovery jobs, monitors, and in-app alerts. Graph
-pagination preserves `pagination.as_of_ts`. Loading, processing, empty, and
-failure states are explicit. Agent jobs can remain queued until the separately
-hosted external agent claims them. Market relationships provide context and do
-not establish causation or issue orders.
-
-The existing `http://localhost:8002/connections` page remains available as a
-small compatibility view for the graph connection-list API.
+No browser frontend is currently included in the repository or Docker Compose.
+The backend capabilities remain available through the authenticated Platform,
+Data and Graph REST APIs and the original local stdio MCP tool. No remote HTTP
+MCP gateway is deployed by Compose. Stock relationship data
+is available through `GET /api/v1/stocks/{ticker}/connections`; callers should
+preserve `pagination.as_of_ts` across pages. External research agents remain
+separately hosted and can claim jobs through the Platform agent API. Market
+relationships provide context and do not establish causation or issue orders.
 
 ## Backup, restore and validation
 
@@ -193,8 +182,5 @@ uv run --all-packages pytest -q -p no:cacheprovider --basetemp=.cache/pytest-che
 uv run --all-packages ruff check services scripts tests
 ```
 
-Live integration tests are opt-in and require disposable local services. They
-exercise SQL transactions, publication/retraction and graph syntax, leases,
-idempotence and restore. Browser checks can use fixture graphs without contacting
-paid APIs. Never describe offline tests as validation of broker/provider access,
-actual trading profitability or production persistence.
+The remaining tests run offline and do not validate live provider access or
+production persistence.

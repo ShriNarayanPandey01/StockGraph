@@ -8,6 +8,7 @@ from typing import Literal
 from fastapi import APIRouter, HTTPException, Query
 from pydantic import BaseModel, Field
 
+from upstox_service.adapters.api.credentials import credential_context
 from upstox_service.adapters.providers.upstox.client import ProviderError
 from upstox_service.application.stock_data import (
     InvalidCursor,
@@ -109,6 +110,8 @@ def _raise_public_error(exc: Exception) -> None:
         if status == 404:
             raise HTTPException(404, "Upstox has no data for this instrument") from exc
         if status in (401, 403):
+            if credential_context.get() is not None:
+                raise HTTPException(401, "broker_reconnect_required: Upstox credential rejected") from None
             raise HTTPException(502, "Upstox authorization or entitlement unavailable") from exc
         if exc.retryable:
             raise HTTPException(503, "Upstox is temporarily unavailable") from exc
@@ -120,6 +123,10 @@ def create_stock_router(repository, provider, redis_client=None, config=None) ->
     """The caller owns the provider and repository lifetimes."""
     _ = (redis_client, config)
     service = StockDataService(repository, provider)
+
+    def current_service():
+        context = credential_context.get()
+        return StockDataService(repository, context.stock_provider, persist_provider_results=False) if context else service
     router = APIRouter(prefix="/api/v1", tags=["Stocks / Market Data"])
 
     @router.get("/stocks", response_model=StockListResponse)
@@ -130,21 +137,21 @@ def create_stock_router(repository, provider, redis_client=None, config=None) ->
         limit: int = Query(default=50, ge=1, le=100),
     ):
         try:
-            return await service.list_stocks(query, exchange, cursor, limit)
+            return await current_service().list_stocks(query, exchange, cursor, limit)
         except (InvalidCursor, ValueError, ProviderError) as exc:
             _raise_public_error(exc)
 
     @router.get("/stocks/{ticker}", response_model=StockDetail)
     async def get_stock(ticker: str, exchange: Exchange = "NSE"):
         try:
-            return await service.stock(ticker.strip().upper(), exchange)
+            return await current_service().stock(ticker.strip().upper(), exchange)
         except (StockNotFound, ValueError, ProviderError) as exc:
             _raise_public_error(exc)
 
     @router.get("/stocks/{ticker}/shareholding", response_model=ShareholdingResponse)
     async def shareholding(ticker: str, exchange: Exchange = "NSE"):
         try:
-            return await service.shareholding(ticker.strip().upper(), exchange)
+            return await current_service().shareholding(ticker.strip().upper(), exchange)
         except (StockNotFound, ValueError, ProviderError) as exc:
             _raise_public_error(exc)
 
@@ -156,7 +163,7 @@ def create_stock_router(repository, provider, redis_client=None, config=None) ->
         to_date: date | None = Query(default=None, alias="to"),
     ):
         try:
-            return await service.candles(ticker.strip().upper(), exchange, from_date, to_date)
+            return await current_service().candles(ticker.strip().upper(), exchange, from_date, to_date)
         except (StockNotFound, ValueError, ProviderError) as exc:
             _raise_public_error(exc)
 

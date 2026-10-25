@@ -1,21 +1,30 @@
 # Service architecture and operating guide
 
-> **Current Phase 1 extension:** Read [PHASE1_PLATFORM.md](PHASE1_PLATFORM.md)
+> **Current release policy:** Read [PHASE2_PLATFORM.md](PHASE2_PLATFORM.md) for
+> public accounts, developer administration, Free/Pro enforcement and optional
+> encrypted Upstox connections. The fourth workspace package, `services/agents/`,
+> is a disabled health-only scaffold. Payments and trading remain deferred.
+>
+> **Original platform extension:** Read [PHASE1_PLATFORM.md](PHASE1_PLATFORM.md)
 > for the new Platform Backend, separate ordinary PostgreSQL application database,
 > professional publishing, permitted document originals, external-agent jobs and
-> Stock Connections Explorer. All features are free; RBAC and Pine Labs are Phase 2.
+> stock-connection API. Phase 2 supersedes its original unrestricted access policy.
 > The two core services below preserve their existing database ownership.
 
 This specification supersedes the older single-service folder layout, combined
 dossier API, YAML-as-runtime-registry, selective macro baseline, and 30-minute
 cadence in documents 01–03. Phase 2 trading decisions and order execution remain
-deferred. Backend services live under `services/`; the separate Next.js frontend
-lives under `frontend/`. Repository-root scripts and tests are cross-service
+deferred. This repository contains backend services under `services/`; no
+browser frontend is included. Repository-root scripts and tests are cross-service
 operational tooling, not backend deployment entrypoints.
+
+For the whole-project system design and per-service system/OOP class diagrams,
+see the [architecture index](architecture/README.md).
 
 ## Ownership and layout
 
-Two installable Python packages live in one uv workspace, with one root lockfile.
+Data, Graph, Platform and the disabled Agents scaffold are separate Python packages
+in one uv workspace, with one root lockfile.
 Each image installs only its own package and dependencies. No service imports
 the sibling package or reads the sibling database.
 
@@ -110,7 +119,7 @@ Set `DATA_API_INTERNAL_URL` and `GRAPH_API_INTERNAL_URL` on the `data-api`
 service to the internal URLs shown in each service's Render Connect panel, with
 the host and port that Render reports. Keep these services and their databases
 in the same Render region. The one-off job inherits the base service's
-environment, so it also needs `TIMESCALE_DSN`, `REDIS_URL`, and a valid
+environment, so it also needs `MARKETGRAPH_INTERNAL_SERVICE_KEY` and `TIMESCALE_DSN`, `REDIS_URL`, and a valid
 `UPSTOX_ANALYTICS_TOKEN` (or `UPSTOX_AUTHTOKEN`). Ensure `data-api`,
 `graph-api`, `data-worker`, and `graph-worker` are running before starting it.
 
@@ -158,7 +167,7 @@ the API rejects an expired snapshot.
 Only `LAST_6M` and `LAST_1Y` windows are supported; no arbitrary date-range or
 all-time API is added. Pagination is not a guarantee against concurrent graph
 updates; callers should retry after registration completes for a consistent view.
-This is graph-ready JSON, not a frontend visualization.
+This is graph-ready JSON, not a rendered visualization.
 
 ## Scheduling and graph rules
 
@@ -251,20 +260,13 @@ uv run --package stockgraph-service stockgraph-worker
 
 Enable `LLM_ENABLED=true` and configure the chosen provider key for semantic
 processing. Keep it false for offline tests. APIs are development/internal APIs;
-add authentication and network controls before exposing them externally.
-
-The read-only Upstox provider smoke test checks the exchange universe, company
-profile, shareholding, daily candles, option contracts/chains, all three
-smartlists, FII/DII, holidays/status and PCR/OI/change-OI/max-pain without
-persisting data or creating graph events:
-
-```powershell
-$env:PYTHONPATH = "services/upstox/src"
-.venv/Scripts/python.exe scripts/verify_upstox_live.py
-```
+domain routes require the shared internal service key; end users use Platform
+accounts. Protect deployment ingress with TLS and network controls.
 
 The graph MCP entrypoint is `uv run --package stockgraph-service --inexact stockgraph-mcp`
-(stdio transport). It exposes graph context, not a combined SQL dossier.
+(local stdio transport). Set `MARKETGRAPH_PLATFORM_URL` and
+`MARKETGRAPH_PLATFORM_TOKEN`; tools call authenticated Platform equivalents and
+inherit account permissions. Compose has no remote HTTP MCP gateway.
 
 Stop project API/workers/scheduler before a reset. `python -m scripts.project_data`
 creates an integrity-checked local ZIP with SQL binary COPY data, graph DUMP and

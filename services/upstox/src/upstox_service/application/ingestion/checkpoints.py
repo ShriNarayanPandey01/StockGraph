@@ -5,6 +5,8 @@ from datetime import UTC, datetime, timedelta
 from urllib.parse import quote
 from zoneinfo import ZoneInfo
 
+from redis.asyncio import Redis
+
 from upstox_service.adapters.providers.exchanges.bhavcopy import parse_bhavcopy_csv
 from upstox_service.adapters.providers.http_client import ResilientHttpClient
 from upstox_service.adapters.providers.upstox.client import ProviderError, UpstoxClient
@@ -61,11 +63,13 @@ async def collect_checkpoints(repo, config, session: str):
         raise ValueError("Unknown checkpoint session")
     now = datetime.now(UTC)
     today = now.astimezone(ZoneInfo("Asia/Kolkata")).date()
+    budget_redis = Redis.from_url(config.redis_url, decode_responses=True)
     client = UpstoxClient(
         config.upstox_analytics_token,
         base_url=config.upstox_api_base_url,
         timeout=config.upstox_timeout_seconds,
         max_retries=config.upstox_max_retries,
+        redis_client=budget_redis, requests_per_minute=config.upstox_requests_per_minute,
     )
     official_cache = {}
     degraded = False
@@ -192,3 +196,4 @@ async def collect_checkpoints(repo, config, session: str):
         return "DEGRADED" if degraded else "SUCCESS"
     finally:
         await client.close()
+        await budget_redis.aclose()

@@ -7,6 +7,7 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 class Settings(BaseSettings):
     model_config = SettingsConfigDict(env_file=".env", extra="ignore", populate_by_name=True,
                                      env_ignore_empty=True)
+    internal_service_key: SecretStr = Field(default=SecretStr(""), validation_alias="MARKETGRAPH_INTERNAL_SERVICE_KEY", repr=False)
     timescale_dsn: str = "postgresql://stockgraph:stockgraph@localhost:5432/stockgraph"
     redis_url: str = "redis://localhost:6380/0"
     event_stream: str = "stockgraph:events:v1"
@@ -18,6 +19,7 @@ class Settings(BaseSettings):
     upstox_api_base_url: str = "https://api.upstox.com/v2"
     upstox_api_v3_base_url: str = "https://api.upstox.com/v3"
     upstox_timeout_seconds: float = 30
+    upstox_requests_per_minute: int = Field(default=120, ge=1)
     upstox_max_retries: int = Field(default=3, ge=0, le=6)
     market_live_cache_ttl_seconds: int = Field(default=30, ge=1, le=3600)
     market_dated_cache_ttl_seconds: int = Field(default=3600, ge=60, le=86400)

@@ -6,8 +6,12 @@ from hashlib import sha256
 from uuid import UUID
 
 from fastapi import FastAPI, HTTPException
+from fastapi.exceptions import RequestValidationError
+from fastapi.responses import JSONResponse
+from pydantic import BaseModel, ConfigDict, Field, SecretStr
 from redis.asyncio import Redis
 
+from upstox_service.adapters.api.credentials import ScopedMarketProvider, install_internal_boundary
 from upstox_service.adapters.api.document_routes import build_document_router
 from upstox_service.adapters.api.market_routes import create_market_router
 from upstox_service.adapters.api.stock_routes import create_stock_router
@@ -16,7 +20,7 @@ from upstox_service.adapters.providers.news.adapters import (
     ProviderStatus,
     StagedNewsItem,
 )
-from upstox_service.adapters.providers.upstox.client import UpstoxClient
+from upstox_service.adapters.providers.upstox.client import ProviderError, UpstoxClient
 from upstox_service.adapters.providers.upstox.market import UpstoxMarketProvider
 from upstox_service.adapters.providers.upstox.stock_data import UpstoxStockDataProvider
 from upstox_service.adapters.repositories.timescale.catalog import DataRepository
@@ -36,9 +40,11 @@ def create_app(repository=None, redis_client=None, config: Settings | None = Non
     repository = repository or DataRepository(config.timescale_dsn)
     redis_client = redis_client or Redis.from_url(config.redis_url, decode_responses=True)
     v2_client = UpstoxClient(config.upstox_analytics_token, base_url=config.upstox_api_base_url,
-                             timeout=config.upstox_timeout_seconds, max_retries=config.upstox_max_retries)
+                             timeout=config.upstox_timeout_seconds, max_retries=config.upstox_max_retries,
+                             redis_client=redis_client, requests_per_minute=config.upstox_requests_per_minute)
     v3_client = UpstoxClient(config.upstox_analytics_token, base_url=config.upstox_api_v3_base_url,
-                             timeout=config.upstox_timeout_seconds, max_retries=config.upstox_max_retries)
+                             timeout=config.upstox_timeout_seconds, max_retries=config.upstox_max_retries,
+                             redis_client=redis_client, requests_per_minute=config.upstox_requests_per_minute)
     stock_provider = UpstoxStockDataProvider(v2_client, v3_client)
 
     @asynccontextmanager
@@ -60,17 +66,58 @@ def create_app(repository=None, redis_client=None, config: Settings | None = Non
                 await redis_client.aclose()
 
     app = FastAPI(title="Upstox / Market Data Service", version="1.0.0", lifespan=lifespan)
+    @app.exception_handler(RequestValidationError)
+    async def safe_validation_error(request, exc):
+        # Validation failures must never reflect a submitted broker token.
+        return JSONResponse(status_code=422, content={"detail": [
+            {key: item[key] for key in ("loc", "msg", "type") if key in item}
+            for item in exc.errors()
+        ]})
+
+    app.state.broker = redis_client
+    install_internal_boundary(app, config)
     app.include_router(create_stock_router(repository, stock_provider, redis_client, config))
     app.include_router(build_document_router(repository, redis_client, config))
     app.include_router(create_market_router(
-        UpstoxMarketProvider(v2_client), redis_client,
+        ScopedMarketProvider(UpstoxMarketProvider(v2_client)), redis_client,
         live_ttl_seconds=config.market_live_cache_ttl_seconds,
         dated_ttl_seconds=config.market_dated_cache_ttl_seconds,
     ))
 
+    class CredentialInput(BaseModel):
+        model_config = ConfigDict(extra="forbid")
+        access_token: SecretStr = Field(min_length=1, max_length=8192)
+
+    @app.post("/internal/v1/upstox/validate-credential")
+    async def validate_credential(body: CredentialInput):
+        # A market quote is authenticated and contains no private account data.
+        client = UpstoxClient(body.access_token, base_url=config.upstox_api_base_url,
+                              timeout=config.upstox_timeout_seconds, max_retries=0,
+                              redis_client=redis_client, requests_per_minute=config.upstox_requests_per_minute)
+        try:
+            await client.get("/market-quote/quotes", {"instrument_key": "NSE_INDEX|Nifty 50"})
+        except ProviderError as exc:
+            if exc.status_code in (401, 403):
+                raise HTTPException(401, "broker_reconnect_required: Upstox credential rejected") from None
+            raise HTTPException(503, "Upstox credential validation is temporarily unavailable") from None
+        finally:
+            await client.close()
+        return {"status": "connected", "market_data_validated": True, "trading_enabled": False}
+
     @app.get("/health")
     async def health():
         return {"status": "ok", "service": "upstox-data"}
+
+    @app.get("/ready")
+    async def ready():
+        try:
+            pool = getattr(repository, "_pool", None)
+            if pool is None or await pool.fetchval("SELECT 1") != 1:
+                raise RuntimeError("TimescaleDB is unavailable")
+            await redis_client.ping()
+        except Exception:
+            raise HTTPException(503, "Data service dependencies are unavailable") from None
+        return {"status": "ready"}
 
     @app.post("/api/v1/stocks", status_code=202)
     async def register(request: StockRegistration):

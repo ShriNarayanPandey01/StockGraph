@@ -67,21 +67,24 @@ def test_projection_is_idempotent_and_does_not_invent_canonical_stocks():
     assert any("SUPERSEDES" in q for q, _ in repo.queries)
 
 
-def test_evidence_read_is_free_with_bounded_weight_and_opposing_evidence_policy():
+def test_evidence_read_is_authorized_with_bounded_weight_and_opposing_evidence_policy():
     class Repo:
         def get_entity(self, kind, ticker):
             return {"ticker": ticker}
         def _run(self, query, params):
             assert "p.retracted=false" in query and "p.valid_to_ts>=$end" in query
             return [[{"id": "view", "direction": "BULLISH", "evidence_json": "[]"}]]
+    from stockgraph.adapters.api.internal_auth import install_internal_boundary
+    from stockgraph.runtime.settings import settings
     app = FastAPI()
+    install_internal_boundary(app, settings)
     app.include_router(build_evidence_router(Repo()))
-    with TestClient(app) as client:
+    with TestClient(app, headers={"X-Internal-Service-Key": "test-internal-key", "X-MarketGraph-Evidence-Scope": "professional"}) as client:
         response = client.get("/api/v1/stocks/TCS/professional-evidence")
         assert response.status_code == 200
         result = response.json()
         assert result["items"][0]["priority_weight"] > 1
-        assert result["policy"]["subscription_enforced"] is False
+        assert result["policy"]["subscription_enforced"] is True
         assert "opposing evidence" in result["policy"]["instruction"]
         assert client.get("/api/v1/stocks/TCS/professional-evidence?as_of_ts=1").status_code == 422
 

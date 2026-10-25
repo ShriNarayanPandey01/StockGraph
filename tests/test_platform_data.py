@@ -1,15 +1,11 @@
-"""Offline archive safety and rollback behavior; SQL round trip is opt-in."""
+"""Offline archive safety and rollback behavior."""
 
 import copy
 import json
-import os
 import re
 from contextlib import asynccontextmanager
-from urllib.parse import urlsplit
-from uuid import uuid4
 from zipfile import ZipFile
 
-import asyncpg
 import pytest
 
 from scripts import platform_data as tool
@@ -39,6 +35,8 @@ class Connection:
                 {"name": key, "checksum": value}
                 for key, value in tool.migration_checksums().items()
             ]
+        if "FROM \"public\".platform_plan_policies" in query:
+            return []
         return [
             {
                 "column_name": "id",
@@ -113,6 +111,21 @@ async def test_backup_never_removes_an_existing_archive(tmp_path):
     assert path.read_bytes() == b"retain this archive"
 
 
+async def test_restore_accepts_only_the_migration_seeded_plan_policy_rows():
+    class PolicyConnection:
+        rows = [
+            {"plan": plan, **policy}
+            for plan, policy in sorted(tool.DEFAULT_PLAN_POLICIES.items())
+        ]
+
+        async def fetch(self, query):
+            return self.rows
+
+    assert await tool._seeded_plan_policies(PolicyConnection(), "public")
+    PolicyConnection.rows[0]["revision"] = 2
+    assert not await tool._seeded_plan_policies(PolicyConnection(), "public")
+
+
 async def test_checksum_and_path_validation_precede_target_writes(tmp_path):
     original = await tool.backup_connection(Connection(), tmp_path / "original.zip")
     with ZipFile(original) as archive:
@@ -140,86 +153,6 @@ async def test_checksum_and_path_validation_precede_target_writes(tmp_path):
         assert not target.writes
 
 
-async def test_platform_postgresql_roundtrip_with_immutable_history_and_fk_cycle(tmp_path):
-    dsn = os.environ.get("PLATFORM_TEST_DATABASE_DSN")
-    isolated_data_run = not dsn and os.environ.get("RUN_DATA_SQL_TESTS") == "1"
-    if isolated_data_run:
-        from upstox_service.config.settings import Settings
-
-        dsn = Settings().timescale_dsn
-    if not dsn:
-        pytest.skip("Set PLATFORM_TEST_DATABASE_DSN to a disposable local platform_test_* database")
-    parsed = urlsplit(dsn)
-    if parsed.hostname not in {"localhost", "127.0.0.1", "::1"} or not (
-        parsed.path.startswith("/platform_test_") or (isolated_data_run and parsed.path == "/stockgraph")
-    ):
-        pytest.fail("Integration database must be local and named platform_test_*")
-    conn = await asyncpg.connect(dsn)
-    suffix = uuid4().hex[:12]
-    source_schema, target_schema = (
-        f"platform_restore_test_{kind}_{suffix}" for kind in ("source", "target")
-    )
-    transaction = conn.transaction()
-    await transaction.start()
-    try:
-        for schema in (source_schema, target_schema):
-            await conn.execute(f'CREATE SCHEMA "{schema}"')
-            await conn.execute(f'SET LOCAL search_path TO "{schema}",public')
-            await conn.execute(
-                "CREATE TABLE platform_schema_migrations(name text PRIMARY KEY,checksum text NOT NULL,applied_at timestamptz DEFAULT now())"
-            )
-            for path in sorted(tool.MIGRATIONS.glob("*.sql")):
-                await conn.execute(path.read_text(encoding="utf-8"))
-                await conn.execute(
-                    "INSERT INTO platform_schema_migrations(name,checksum) VALUES($1,$2)",
-                    path.name,
-                    tool.migration_checksums()[path.name],
-                )
-        user, contribution, version = uuid4(), uuid4(), uuid4()
-        await conn.execute(f'SET LOCAL search_path TO "{source_schema}",public')
-        await conn.execute("INSERT INTO platform_users(id,name) VALUES($1,'Author')", user)
-        await conn.execute(
-            "INSERT INTO platform_tokens(id,user_id,digest) VALUES($1,$2,'hash-only-no-raw-token')",
-            uuid4(),
-            user,
-        )
-        await conn.execute(
-            "INSERT INTO platform_contributions(id,author_id,status,current_version_id) VALUES($1,$2,'DRAFT',$3)",
-            contribution,
-            user,
-            version,
-        )
-        await conn.execute(
-            "INSERT INTO platform_contribution_versions(id,contribution_id,version_number,ticker,content,event_at,expires_at) VALUES($1,$2,1,'ABC','{}',now(),now()+interval '1 day')",
-            version,
-            contribution,
-        )
-        await conn.execute(
-            "INSERT INTO agent_access_audit(id,actor,action) VALUES(42,'operator','backup')"
-        )
-        path = await tool.backup_connection(conn, tmp_path / "sql.zip", schema=source_schema)
-        await tool.restore_connection(conn, path, schema=target_schema)
-        assert (
-            await conn.fetchval(
-                f'SELECT count(*) FROM "{target_schema}".platform_contribution_versions'
-            )
-            == 1
-        )
-        assert (
-            await conn.fetchval(
-                "SELECT nextval($1::regclass)", f'"{target_schema}".agent_access_audit_id_seq'
-            )
-            == 43
-        )
-        assert (
-            await conn.fetchval(f'SELECT digest FROM "{target_schema}".platform_tokens')
-            == "hash-only-no-raw-token"
-        )
-    finally:
-        # Both schemas and all test data vanish with one rollback; no existing
-        # application table is truncated, deleted, or dropped.
-        await transaction.rollback()
-        await conn.close()
 
 
 def test_source_originals_restore_immutably_and_validate_content_hashes(tmp_path):

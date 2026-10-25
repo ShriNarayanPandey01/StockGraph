@@ -1,4 +1,4 @@
-"""Authenticated free application API; publication safety is independent of plan access."""
+"""Authenticated Platform boundary for accounts, permissions and market intelligence."""
 
 from contextlib import asynccontextmanager
 from importlib.util import find_spec
@@ -6,9 +6,13 @@ from uuid import UUID
 
 import httpx
 from fastapi import Depends, FastAPI, Header, HTTPException, Query
+from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
 
+from marketgraph_platform.accounts import Accounts
 from marketgraph_platform.auth import current_user
+from marketgraph_platform.brokers import BrokerConnections, build_broker_router
+from marketgraph_platform.entitlements import Entitlements
 from marketgraph_platform.models import (
     ContributionInput,
     Principal,
@@ -17,22 +21,38 @@ from marketgraph_platform.models import (
     RevisionInput,
     VersionInput,
 )
-from marketgraph_platform.policy import access_policy
+from marketgraph_platform.policy import access_policy, require_permission
 from marketgraph_platform.repository import PlatformError, Repository
 from marketgraph_platform.settings import Settings
 
 
 class CanonicalClient:
     def __init__(self, settings: Settings):
-        self.client = httpx.AsyncClient(base_url=settings.data_service_url, timeout=settings.http_timeout_seconds)
+        self.client = httpx.AsyncClient(base_url=settings.data_service_url, timeout=settings.http_timeout_seconds,
+                                       headers={"X-Internal-Service-Key": settings.internal_service_key.get_secret_value()})
 
-    async def get(self, path: str, params: dict | None = None):
+    async def get(self, path: str, params: dict | None = None, *, headers=None):
         try:
-            result = await self.client.get(path, params=params)
+            result = await self.client.get(path, params=params, headers=headers)
+            if result.status_code in (400, 401, 403, 404, 409, 422):
+                message = "Data request rejected"
+                if result.status_code == 401 and "broker_reconnect_required" in result.text:
+                    message = "broker_reconnect_required"
+                raise PlatformError(result.status_code, message)
             result.raise_for_status()
             return result.json()
         except (httpx.HTTPError, ValueError):
             raise HTTPException(503, "Data Service unavailable") from None
+
+    async def post_internal(self, path, payload, *, headers=None):
+        try:
+            result = await self.client.post(path, json=payload, headers=headers)
+            if result.status_code in (400, 401, 403, 404, 409, 422):
+                raise PlatformError(result.status_code, "Data Service rejected the operation")
+            result.raise_for_status()
+            return result.json()
+        except (httpx.HTTPError, ValueError):
+            raise PlatformError(503, "Data Service temporarily unavailable") from None
 
     async def validate_ticker(self, ticker: str) -> str:
         # Registry lookup only: a public company-detail read may resolve an
@@ -72,6 +92,7 @@ def create_app(settings: Settings | None = None, repository=None, canonical_clie
         try:
             if owned_repo:
                 await repository.connect()
+                await app.state.accounts.bootstrap_developer()
             yield
         finally:
             if owned_client:
@@ -79,18 +100,35 @@ def create_app(settings: Settings | None = None, repository=None, canonical_clie
             if owned_repo:
                 await repository.close()
 
-    app = FastAPI(title="MarketGraph Platform", version="1.0.0", lifespan=lifespan)
+    app = FastAPI(title="MarketGraph Platform", version="2.0.0", lifespan=lifespan)
     app.state.repository = repository
     app.state.canonical_client = canonical_client
     app.state.settings = settings
+    app.state.accounts = Accounts(repository, settings=settings)
+    app.state.entitlements = Entitlements(repository)
+    app.state.brokers = BrokerConnections(repository, settings, canonical_client)
+    from marketgraph_platform.account_api import build_account_router
+    from marketgraph_platform.admin_api import build_admin_router
+    from marketgraph_platform.policy_api import build_policy_router
+    app.include_router(build_account_router(current_user))
+    app.include_router(build_admin_router(current_user))
+    app.include_router(build_policy_router(current_user))
+    app.include_router(build_broker_router(current_user))
 
     @app.exception_handler(PlatformError)
     async def platform_error(request, exc: PlatformError):
         return JSONResponse(status_code=exc.status, content={"detail": exc.detail})
 
+    @app.exception_handler(RequestValidationError)
+    async def validation_error(request, exc):
+        return JSONResponse(status_code=422, content={"detail": [
+            {"loc": list(error["loc"]), "type": error["type"], "msg": "Invalid request field"}
+            for error in exc.errors()
+        ]})
+
     @app.get("/health")
     async def health():
-        return {"status": "ok", "service": "marketgraph-platform", "phase": 1}
+        return {"status": "ok", "service": "marketgraph-platform", "phase": 2}
 
     @app.get("/ready")
     async def ready():
@@ -103,20 +141,23 @@ def create_app(settings: Settings | None = None, repository=None, canonical_clie
 
     @app.get("/api/v1/me")
     async def me(user: Principal = Depends(current_user)):
-        return {"user": user, "access": access_policy()}
+        access = await app.state.entitlements.access(user.id)
+        return {"user": user, "access": access_policy(access.user, access.policy)}
 
     @app.get("/api/v1/access-policy")
     async def policy(user: Principal = Depends(current_user)):
-        return access_policy()
+        access = await app.state.entitlements.access(user.id)
+        return access_policy(access.user, access.policy)
 
     @app.get("/api/v1/me/usage")
     async def usage(user: Principal = Depends(current_user)):
-        return {"items": await repository.usage(user.id), "quota_enforcement": False}
+        return await app.state.entitlements.usage(user)
 
     @app.post("/api/v1/contributions", status_code=201)
     async def create_contribution(body: ContributionInput,
                                   idempotency_key: str = Header(min_length=1, max_length=200),
                                   user: Principal = Depends(current_user)):
+        require_permission(user, "author")
         await canonical_client.validate_ticker(body.ticker)
         await canonical_client.validate_citations(body)
         result = await repository.create_contribution(user, body, idempotency_key)
@@ -133,6 +174,7 @@ def create_app(settings: Settings | None = None, repository=None, canonical_clie
 
     @app.post("/api/v1/contributions/{contribution_id}/versions", status_code=201)
     async def add_version(contribution_id: UUID, body: VersionInput, user: Principal = Depends(current_user)):
+        require_permission(user, "author")
         await canonical_client.validate_ticker(body.ticker)
         await canonical_client.validate_citations(body)
         content = ContributionInput.model_validate(body.model_dump(exclude={"expected_revision"}))
@@ -140,27 +182,32 @@ def create_app(settings: Settings | None = None, repository=None, canonical_clie
 
     @app.post("/api/v1/contributions/{contribution_id}/submit")
     async def submit(contribution_id: UUID, body: RevisionInput, user: Principal = Depends(current_user)):
+        require_permission(user, "author")
         return await repository.submit(contribution_id, user, body.expected_revision)
 
     @app.get("/api/v1/review-queue")
     async def reviews(user: Principal = Depends(current_user)):
+        require_permission(user, "review")
         return {"items": await repository.review_queue(user)}
 
     @app.post("/api/v1/contributions/{contribution_id}/review")
     async def review(contribution_id: UUID, body: ReviewInput, user: Principal = Depends(current_user)):
+        require_permission(user, "review")
         return await repository.review(contribution_id, user, body.expected_revision, body.decision, body.reason)
 
     @app.post("/api/v1/contributions/{contribution_id}/retract")
     async def retract(contribution_id: UUID, body: RetractionInput, user: Principal = Depends(current_user)):
+        require_permission(user, "author")
         return await repository.retract(contribution_id, user, body.expected_revision, body.reason)
 
     @app.get("/api/v1/stocks/{ticker}/professional-evidence")
     async def evidence(ticker: str, limit: int = Query(default=50, ge=1, le=100),
                        offset: int = Query(default=0, ge=0, le=10000), user: Principal = Depends(current_user)):
+        await app.state.entitlements.check(user, "professional_evidence", [ticker.strip().upper()])
         await canonical_client.validate_ticker(ticker)
         items = await repository.published(ticker, limit + 1, offset)
         await repository.measure(user.id, "professional_evidence_reads")
-        return {"items": items[:limit], "access": "FREE_PHASE_1", "ordinary_weight": settings.ordinary_weight,
+        return {"items": items[:limit], "access": "PRO", "ordinary_weight": settings.ordinary_weight,
                 "weight_policy_version": "professional-priority-v1", "contradictions_retained": True,
                 "pagination": {"limit": limit, "offset": offset, "next_offset": offset + limit if len(items) > limit else None}}
 

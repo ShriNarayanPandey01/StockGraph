@@ -2,6 +2,8 @@
 
 > **Current deployment architecture:** Read [docs/04_SERVICE_BOUNDARIES.md](04_SERVICE_BOUNDARIES.md) first. It supersedes the legacy single-service layout, combined dossier, selective macro baseline, YAML runtime registry, and 30-minute news cadence below. Production services are `services/upstox/` (SQL/source ingestion) and `services/stockgraph/` (FalkorDB/LLM), with hourly news and API registration.
 
+> For the current whole-project and per-service designs, read the [architecture diagrams](architecture/README.md). This document is the original system-design specification.
+
 ## 1. End-to-End Architecture Diagram
 
 ```text

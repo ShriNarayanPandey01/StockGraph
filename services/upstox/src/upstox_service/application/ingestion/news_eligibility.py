@@ -122,6 +122,7 @@ class StockGraphEligibilityReviewer:
     """Thin HTTP client; LLM credentials never enter the data service."""
 
     def __init__(self, url: str | None = None, timeout_seconds: float | None = None) -> None:
+        self._internal_key = settings.internal_service_key.get_secret_value()
         self._url = (url if url is not None else settings.news_eligibility_url).strip()
         self._timeout = (
             timeout_seconds
@@ -140,7 +141,8 @@ class StockGraphEligibilityReviewer:
         }
         try:
             async with httpx.AsyncClient(timeout=self._timeout) as client:
-                response = await client.post(self._url, json=payload)
+                response = await client.post(self._url, json=payload, headers={
+                    "X-Internal-Service-Key": self._internal_key})
                 response.raise_for_status()
                 body = response.json()
             if not isinstance(body, dict):

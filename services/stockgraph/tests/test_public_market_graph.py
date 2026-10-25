@@ -85,7 +85,7 @@ def test_public_market_graph_api_caches_and_rejects_parameters():
     broker = Broker()
     repo = PreviewRepo()
     app = create_app(repo, broker, Data())
-    client = TestClient(app)
+    client = TestClient(app, headers={"X-Internal-Service-Key": "test-internal-key"})
     first = client.get("/api/v1/public/market-graph")
     assert first.status_code == 200
     assert "stockgraph:public-market-graph:v1" in broker.values

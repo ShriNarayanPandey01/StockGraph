@@ -46,9 +46,10 @@ async def refresh_equity_universe(repository, provider) -> dict[str, int]:
 
 
 class StockDataService:
-    def __init__(self, repository, provider):
+    def __init__(self, repository, provider, *, persist_provider_results: bool = True):
         self._repo = StockDataRepository(repository)
         self._provider = provider
+        self._persist_provider_results = persist_provider_results
 
     async def list_stocks(
         self, query: str = "", exchange: str | None = None,
@@ -76,6 +77,8 @@ class StockDataService:
             raise
         if resolved["trading_symbol"].upper() != ticker.upper():
             raise StockNotFound("No equity matched this symbol and exchange")
+        if not self._persist_provider_results:
+            return {**resolved, "exchange": exchange, "source_as_of": datetime.now(UTC)}
         await self._repo.upsert_instrument(resolved)
         found = await self._repo.get_instrument(ticker, exchange)
         if found is None:
@@ -84,6 +87,10 @@ class StockDataService:
 
     async def stock(self, ticker: str, exchange: str) -> dict:
         instrument = await self._instrument(ticker, exchange)
+        if not self._persist_provider_results:
+            profile = await self._provider.fetch_profile(instrument["isin"])
+            return {**instrument, "registered": await self._repo.is_registered(instrument["trading_symbol"], instrument["isin"]),
+                    "profile": profile, "vendor_id": "UPSTOX", "vendor_as_of": datetime.now(UTC)}
         cached = await self._repo.get_profile(instrument["isin"])
         if cached is None or cached["vendor_as_of"] < datetime.now(UTC) - timedelta(days=1):
             profile = await self._provider.fetch_profile(instrument["isin"])
@@ -102,7 +109,10 @@ class StockDataService:
 
     async def shareholding(self, ticker: str, exchange: str) -> dict:
         instrument = await self._instrument(ticker, exchange)
-        stored = await self._repo.get_shareholding(instrument["isin"])
+        if self._persist_provider_results:
+            stored = await self._repo.get_shareholding(instrument["isin"])
+        else:
+            stored = {"rows": await self._provider.fetch_shareholding(instrument["isin"]), "vendor_as_of": datetime.now(UTC)}
         if (
             stored["vendor_as_of"] is None
             or stored["vendor_as_of"] < datetime.now(UTC) - timedelta(days=1)
@@ -147,6 +157,17 @@ class StockDataService:
             raise ValueError("No completed daily candles exist in the requested range")
         if (last - first).days > 3652:
             raise ValueError("Daily candle range cannot exceed ten years")
+        if not self._persist_provider_results:
+            candles = []
+            chunk_start = first
+            now = datetime.now(UTC)
+            while chunk_start <= last:
+                chunk_end = min(chunk_start + timedelta(days=5 * 365), last)
+                rows = await self._provider.fetch_daily_candles(instrument["instrument_key"], chunk_start, chunk_end)
+                candles.extend({**row, "vendor_id": "UPSTOX", "vendor_as_of": now} for row in rows)
+                chunk_start = chunk_end + timedelta(days=1)
+            return {"exchange": exchange, "ticker": instrument["trading_symbol"], "isin": instrument["isin"],
+                    "from_date": first, "to_date": last, "vendor_id": "UPSTOX", "candles": candles}
         if not await self._repo.has_candle_coverage(exchange, instrument["isin"], first, last):
             # Keep each provider request well below Upstox's decade/day limit.
             candles = []

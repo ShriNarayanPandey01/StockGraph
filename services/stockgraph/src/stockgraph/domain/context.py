@@ -71,7 +71,7 @@ class PublicMarketGraphSelection(BaseModel):
 
 
 class PublicMarketGraphResponse(BaseModel):
-    """Small, frontend-ready market graph assembled from public FalkorDB data."""
+    """Small market graph payload assembled from public FalkorDB data."""
 
     generated_at: int
     start_ts: int

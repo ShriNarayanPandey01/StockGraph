@@ -3,7 +3,7 @@
 import time
 from datetime import UTC, datetime
 
-from fastapi import APIRouter, HTTPException, Query
+from fastapi import APIRouter, HTTPException, Query, Request
 from stockgraph.adapters.repositories.falkor.professional import EvidenceRepository
 from stockgraph.application.professional import professional_context
 from stockgraph.domain.enums import Window
@@ -19,9 +19,11 @@ def build_evidence_router(repo):
             raise HTTPException(404, "Unknown registered stock")
 
     @router.get("/professional-evidence")
-    def professional(ticker: str, window: Window = Window.LAST_6M,
+    def professional(ticker: str, request: Request, window: Window = Window.LAST_6M,
                      limit: int = Query(50, ge=1, le=200), offset: int = Query(0, ge=0, le=10000),
                      as_of_ts: int | None = None):
+        if not request.state.include_professional:
+            raise HTTPException(403, "Professional evidence access required")
         stock(ticker)
         now = int(time.time())
         if as_of_ts is not None and not now - settings.pagination_snapshot_max_age_seconds <= as_of_ts <= now:

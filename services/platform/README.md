@@ -1,14 +1,17 @@
-# MarketGraph Platform — Phase 1
+# MarketGraph Platform
+
+See [the Platform system design and class diagram](../../docs/architecture/platform-service.md).
 
 The application backend owns users, contribution history, reviews, usage measurements,
 and the durable professional-evidence outbox. It uses its **own logical PostgreSQL
 database** on the existing PostgreSQL/Timescale server. All its tables are ordinary
 PostgreSQL tables. It never reads Data Service tables or writes graph data directly.
 
-Every implemented feature is free. There are no plan quotas, payment integration, or
-RBAC checks. Ownership, authenticated access, independently reviewed publication,
-provider budgets and operational limits still apply. Future `PRO` classifications
-are metadata only. Pine Labs and RBAC are Phase 2 work.
+Current accounts and access policy are documented in
+[Phase 2 operations](../../docs/PHASE2_PLATFORM.md). Public users sign up with
+verified email/password and start Free; Pro is assigned manually. The `.env`
+developer identity has all supported application permissions and can self-approve.
+Payments and trading remain deferred.
 
 ## Running
 
@@ -46,19 +49,19 @@ migration for later schema changes. The API and separate worker use bounded pool
    a different body under the same key is rejected rather than creating a duplicate.
 2. `POST /api/v1/contributions/{id}/submit`: freeze the version for independent
    review. Include its `expected_revision` on every mutation.
-3. Another authenticated person reads `GET /api/v1/review-queue` and posts
+3. An assigned reviewer reads `GET /api/v1/review-queue` and posts
    `/contributions/{id}/review` with `APPROVE` or `REJECT`, a reason and revision.
-   Self-review is rejected. Approved publication requires operator-verified author
-   credentials and unexpired evidence. Role assignments are deferred.
+   Self-review is rejected for ordinary users; the developer can self-approve.
+   Publication retains verified author, canonical citation and expiry checks.
 4. `POST /contributions/{id}/versions` creates a correction as a new version; the
    previous publication stays active until the correction is approved. Submitted
    versions cannot be edited. Rejected versions require a new draft before resubmission.
 5. `/contributions/{id}/retract` records an immutable reason and removes the current
    publication from evidence results. Retracted contributions cannot be republished.
 
-`GET /api/v1/contributions` and `/{id}` expose drafts/history to their author only.
+`GET /api/v1/contributions` and `/{id}` expose drafts/history to their author or the developer.
 `GET /api/v1/stocks/{ticker}/professional-evidence` returns current published
-evidence to **any authenticated user**. Opposing opinions remain separate. The
+evidence to entitled Pro/developer users; author/reviewer duties have scoped access. Opposing opinions remain separate. The
 configured professional priority (`PLATFORM_PROFESSIONAL_WEIGHT`, default 1.5)
 is a weighting input, not a guaranteed market conclusion. Expired/retracted views
 are excluded; unverified authors receive only ordinary SQL retrieval weight.
@@ -71,15 +74,17 @@ graph projection has completed. Raw provider data remains Data Service-owned.
 
 ## Access and operations
 
-`GET /api/v1/access-policy` exposes unrestricted Phase 1 access and dormant future
-Free defaults (10 stocks, 10 alerts/month in Asia/Kolkata). `GET /api/v1/me/usage`
-returns measured usage without blocking on plan limits. The per-user request limit
-is an operational budget enforced atomically across replicas, unrelated to plans.
+`GET /api/v1/access-policy` and `/api/v1/me/usage` expose effective permissions,
+plan limits and usage. Free users select up to ten active stocks and receive up
+to ten newly deduplicated alerts per IST calendar month. The developer bypasses
+per-user restrictions; global provider/model budgets remain operating controls.
 
-Authenticated agent jobs, monitoring, deduplicated alerts and the Connections
-Explorer are registered by the application integration routers. See the repository
-Phase 1 integration guide and OpenAPI for their contracts. The Platform API does
-not execute external agents or allow direct database commands from them.
+Data/Graph domain routes require `MARKETGRAPH_INTERNAL_SERVICE_KEY`. Optional
+personal Upstox connections are encrypted using `PLATFORM_BROKER_ENCRYPTION_KEY`;
+invalid personal credentials require reconnection rather than silent fallback.
+Developer/SMTP/vault secrets belong only to the API process. The separate worker
+owns outbox relay and scheduling, not agent execution. The agents package is a
+health-only scaffold and existing external agents still use leased Platform REST.
 
 ## External-agent evidence contract
 
@@ -134,10 +139,5 @@ any plan. A full user's queue does not starve other users' scheduled monitors.
 uv run pytest services/platform/tests
 ```
 
-Set `PLATFORM_TEST_DATABASE_DSN` to a disposable PostgreSQL instance to enable the
-live workflow test. It creates an isolated random schema, checks publication,
-ownership, correction, retraction, transactional outbox and history immutability,
-then removes that schema. Offline tests cover access, authentication, canonical
-identity validation, timestamps, review rejection and lost-ack outbox replay.
-Production backup/restore, integration load and transport durability checks require
-running infrastructure and remain explicit release checks.
+Offline tests cover access, authentication, canonical identity validation,
+timestamps, review rejection and lost-ack outbox replay.

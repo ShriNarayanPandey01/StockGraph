@@ -11,6 +11,7 @@ from pydantic import BaseModel, ConfigDict, Field
 
 from stockgraph.adapters.api.data_client import DataServiceClient
 from stockgraph.adapters.api.evidence_routes import build_evidence_router
+from stockgraph.adapters.api.internal_auth import install_internal_boundary
 from stockgraph.adapters.llm.providers import LiteLLMChatProvider
 from stockgraph.adapters.messaging.consumer import renewable_lock
 from stockgraph.adapters.repositories.falkor.repository import GraphRepository
@@ -49,6 +50,7 @@ def create_app(
     eligibility_reviewer: Any | None = None,
 ) -> FastAPI:
     app = FastAPI(title="StockGraph", version="0.2.0")
+    install_internal_boundary(app, settings)
     app.state.repo = repo if repo is not None else GraphRepository()
     app.state.broker = (
         broker
@@ -125,10 +127,10 @@ def create_app(
         except httpx.RequestError as exc:
             raise HTTPException(503, "Data service is unavailable") from exc
 
-    async def developer_write(callback):
+    async def developer_write(callback, request: Request):
         """Run an explicit developer mutation under the graph-writer lease."""
-        if not settings.developer_graph_mutations_enabled:
-            raise HTTPException(403, "Developer graph mutations are disabled")
+        if not request.state.developer:
+            raise HTTPException(403, "Developer permissions required")
         with renewable_lock(app.state.broker) as guard:
             if not guard:
                 raise HTTPException(409, "Graph writer is busy; retry the mutation")
@@ -143,7 +145,7 @@ def create_app(
     @app.post(
         "/api/v1/developer/edges", status_code=201, response_model=DeveloperEdgeResponse
     )
-    async def create_developer_edge(body: DeveloperEdgeCreate) -> DeveloperEdgeResponse:
+    async def create_developer_edge(body: DeveloperEdgeCreate, request: Request) -> DeveloperEdgeResponse:
         """Create a manual FalkorDB edge between two existing graph nodes."""
         try:
             result = await developer_write(
@@ -157,7 +159,7 @@ def create_app(
                     actor=body.actor,
                     confidence=body.confidence,
                     metadata=body.metadata,
-                )
+                ), request
             )
         except KeyError as exc:
             raise HTTPException(404, str(exc)) from exc
@@ -166,9 +168,9 @@ def create_app(
     @app.delete(
         "/api/v1/developer/edges/{edge_id}", response_model=DeveloperEdgeDeleteResponse
     )
-    async def delete_developer_edge(edge_id: str) -> DeveloperEdgeDeleteResponse:
+    async def delete_developer_edge(edge_id: str, request: Request) -> DeveloperEdgeDeleteResponse:
         """Delete a developer-created edge by ID; inferred and baseline edges are protected."""
-        deleted = await developer_write(lambda: app.state.repo.delete_developer_edge(edge_id))
+        deleted = await developer_write(lambda: app.state.repo.delete_developer_edge(edge_id), request)
         if not deleted:
             raise HTTPException(404, "Developer edge not found")
         return DeveloperEdgeDeleteResponse(edge_id=edge_id, deleted=True)
@@ -222,7 +224,8 @@ def create_app(
             raise HTTPException(422, "Pagination snapshot expired; restart at the first page")
         try:
             return await asyncio.to_thread(
-                app.state.context.get_context, ticker, window, offset, limit, as_of_ts
+                app.state.context.get_context, ticker, window, offset, limit, as_of_ts,
+                include_professional=request.state.include_professional
             )
         except KeyError as exc:
             raise HTTPException(
@@ -231,7 +234,7 @@ def create_app(
 
     @app.get("/api/v1/public/market-graph", response_model=PublicMarketGraphResponse)
     async def public_market_graph(request: Request) -> PublicMarketGraphResponse:
-        """Return a small cached graph intended for a public frontend canvas."""
+        """Return a small cached graph payload for public clients."""
         if request.query_params:
             raise HTTPException(422, "This public graph preview does not accept query parameters")
         cache_key = "stockgraph:public-market-graph:v1"

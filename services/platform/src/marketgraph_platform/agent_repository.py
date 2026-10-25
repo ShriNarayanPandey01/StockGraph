@@ -5,6 +5,27 @@ import json
 from datetime import UTC, datetime, timedelta
 from uuid import UUID, uuid4
 
+from marketgraph_platform.repository import PlatformError
+
+
+async def job_access(conn, job):
+    # Lazy import avoids the repository/entitlements cycle at application startup.
+    from marketgraph_platform.entitlements import load_job_access
+
+    access = await load_job_access(conn, job)
+    access.require_job(job)
+    return access
+
+
+async def locked_job(conn, job_id, lease_token):
+    # Account locks always precede job locks, matching selection/plan mutations.
+    owner = await conn.fetchrow('SELECT user_id FROM agent_jobs WHERE id=$1', job_id)
+    if owner is None:
+        raise WorkConflict('Job lease does not match')
+    await conn.fetchval('SELECT id FROM platform_users WHERE id=$1 FOR UPDATE', owner['user_id'])
+    job = await leased_job(conn, job_id, lease_token, lock=True)
+    return job, await job_access(conn, job)
+
 
 class WorkConflict(ValueError):
     pass
@@ -24,52 +45,78 @@ def unpack(row):
     return result
 
 
-async def create_job(pool, user_id, kind, payload, key, max_pending=20):
-    digest = fingerprint({'kind': kind, 'input': payload})
+async def create_job(pool, user_id, kind, payload, key, max_pending=20, actor_id=None):
+    digest = fingerprint({'kind': kind, 'input': payload, 'actor_id': actor_id})
     async with pool.acquire() as conn, conn.transaction():
         # Serialize admission per owner, not across all users. This ceiling is
         # operational queue backpressure and is unrelated to a subscription.
         await conn.fetchval('SELECT id FROM platform_users WHERE id=$1 FOR UPDATE', user_id)
+        required_plan = 'PRO' if kind == 'discovery' or payload.get('scope') == 'market' or (
+            actor_id is not None and actor_id != user_id) else 'FREE'
+        admission = {'user_id': user_id, 'actor_id': actor_id, 'kind': kind,
+                     'input': payload, 'required_plan': required_plan}
+        access = await job_access(conn, admission)
         existing = await conn.fetchrow('SELECT * FROM agent_jobs WHERE user_id=$1 AND request_key=$2', user_id, key)
         if existing:
             if existing['fingerprint'] != digest:
                 raise WorkConflict('Idempotency key was used with a different request')
+            await job_access(conn, unpack(existing))
             return unpack(existing)
         count = await conn.fetchval("SELECT count(*) FROM agent_jobs WHERE user_id=$1 AND state IN ('pending','running')", user_id)
-        if count >= max_pending:
+        if not access.developer and count >= max_pending:
             raise WorkConflict('Operational work queue is full; retry after pending work finishes')
         if payload.get('conversation_id'):
             if not await conn.fetchval('SELECT id FROM conversations WHERE id=$1 AND user_id=$2 FOR SHARE',UUID(payload['conversation_id']),user_id):
                 raise WorkConflict('Conversation is not owned by this user')
             await conn.execute(
-                "INSERT INTO research_messages(id,conversation_id,user_id,role,content) VALUES($1,$2,$3,'user',$4)",
+                "INSERT INTO research_messages(id,conversation_id,user_id,role,content,required_plan) VALUES($1,$2,$3,'user',$4,'FREE')",
                 UUID(payload['user_message_id']),UUID(payload['conversation_id']),user_id,payload['question'],
             )
         row = await conn.fetchrow(
-            'INSERT INTO agent_jobs(id,user_id,kind,input,request_key,fingerprint) VALUES($1,$2,$3,$4::jsonb,$5,$6) RETURNING *',
-            uuid4(), user_id, kind, json.dumps(payload, default=str), key, digest,
+            'INSERT INTO agent_jobs(id,user_id,kind,input,request_key,fingerprint,required_plan,actor_id) '
+            'VALUES($1,$2,$3,$4::jsonb,$5,$6,$7,$8) RETURNING *',
+            uuid4(), user_id, kind, json.dumps(payload, default=str), key, digest, required_plan, actor_id,
         )
+        if access.developer:
+            from marketgraph_platform.entitlements import audit_admin
+
+            await audit_admin(conn, access.user.id, 'agent.job.created', user_id,
+                              {'job_id': str(row['id']), 'kind': kind})
         return unpack(row)
 
 
 async def claim_job(pool, settings):
-    async with pool.acquire() as conn, conn.transaction():
-        await conn.execute(
-            "UPDATE agent_jobs SET state='failed',error='Agent lease expired; retry budget exhausted',finished_at=now() "
-            "WHERE state='running' AND lease_until<now() AND attempts >= $1", settings.max_agent_attempts,
-        )
-        row = await conn.fetchrow(
-            "SELECT id FROM agent_jobs WHERE (state='pending' OR (state='running' AND lease_until<now())) "
-            'AND attempts<$1 ORDER BY created_at FOR UPDATE SKIP LOCKED LIMIT 1', settings.max_agent_attempts,
-        )
-        if not row:
-            return None
-        result = await conn.fetchrow(
-            "UPDATE agent_jobs SET state='running',attempts=attempts+1,lease_token=$2,"
-            "lease_until=now()+make_interval(secs=>$3),error=NULL WHERE id=$1 RETURNING *",
-            row['id'], uuid4(), settings.agent_lease_seconds,
-        )
-        return unpack(result)
+    candidates = await pool.fetch(
+        "SELECT id,user_id FROM agent_jobs WHERE state='pending' OR "
+        "(state='running' AND lease_until<now()) ORDER BY created_at LIMIT 100")
+    for candidate in candidates:
+        async with pool.acquire() as conn, conn.transaction():
+            await conn.fetchval('SELECT id FROM platform_users WHERE id=$1 FOR UPDATE', candidate['user_id'])
+            row = await conn.fetchrow(
+                "SELECT * FROM agent_jobs WHERE id=$1 AND (state='pending' OR "
+                "(state='running' AND lease_until<now())) FOR UPDATE SKIP LOCKED", candidate['id'])
+            if row is None:
+                continue
+            job = unpack(row)
+            try:
+                await job_access(conn, job)
+            except PlatformError as exc:
+                if exc.status != 403:
+                    raise
+                await conn.execute(
+                    "UPDATE agent_jobs SET state='cancelled',lease_token=NULL,lease_until=NULL,"
+                    "finished_at=now(),error='Current access policy does not permit this job' WHERE id=$1", job['id'])
+                continue
+            if job['attempts'] >= settings.max_agent_attempts:
+                await conn.execute(
+                    "UPDATE agent_jobs SET state='failed',lease_token=NULL,lease_until=NULL,finished_at=now(),"
+                    "error='Agent retry budget exhausted' WHERE id=$1", job['id'])
+                continue
+            return unpack(await conn.fetchrow(
+                "UPDATE agent_jobs SET state='running',attempts=attempts+1,lease_token=$2,"
+                "lease_until=now()+make_interval(secs=>$3),error=NULL WHERE id=$1 RETURNING *",
+                job['id'], uuid4(), settings.agent_lease_seconds))
+    return None
 
 
 async def leased_job(conn, job_id, lease_token, *, lock=False):
@@ -89,13 +136,14 @@ async def audit_access(conn, job_id, actor, action):
 
 async def reserve_tool_call(pool, job_id, lease_token, actor):
     async with pool.acquire() as conn, conn.transaction():
-        job = await leased_job(conn, job_id, lease_token, lock=True)
+        job, access = await locked_job(conn, job_id, lease_token)
         if job['state'] != 'running':
             raise WorkConflict('Completed work cannot retrieve more context')
+        ceiling = '' if access.developer else 'WHERE agent_usage.amount<100 '
         calls = await conn.fetchval(
             "INSERT INTO agent_usage(user_id,job_id,metric,amount) VALUES($1,$2,'tool_calls',1) "
             "ON CONFLICT(job_id,metric) DO UPDATE SET amount=agent_usage.amount+1 "
-            'WHERE agent_usage.amount<100 RETURNING amount', job['user_id'], job_id)
+            + ceiling + 'RETURNING amount', job['user_id'], job_id)
         if calls is None:
             raise WorkConflict('Operational tool budget exhausted')
         await audit_access(conn, job_id, actor, 'tool.read')
@@ -106,9 +154,12 @@ async def register_evidence(pool, job_id, lease_token, entries):
     """Only server-fetched sources can enter this ledger; agents cannot write it."""
     offered = []
     async with pool.acquire() as conn, conn.transaction():
-        job = await leased_job(conn, job_id, lease_token, lock=True)
+        job, access = await locked_job(conn, job_id, lease_token)
         if job['state'] != 'running':
             raise WorkConflict('Completed work cannot retrieve more context')
+        if any(entry['kind'] == 'professional' for entry in entries):
+            access.require('professional_evidence')
+            await conn.execute("UPDATE agent_jobs SET required_plan='PRO' WHERE id=$1", job_id)
         for entry in entries:
             if entry['ticker'] not in job['input']['tickers']:
                 raise WorkConflict('Evidence is outside the job scope')
@@ -183,7 +234,7 @@ async def validate_result_evidence(conn, job, lease_token, result):
 
 async def fail_job(pool, job_id, lease_token, retryable, max_attempts, actor):
     async with pool.acquire() as conn, conn.transaction():
-        job = await leased_job(conn, job_id, lease_token, lock=True)
+        job, _ = await locked_job(conn, job_id, lease_token)
         if job['state'] != 'running':
             raise WorkConflict('Only running jobs can fail')
         state = 'pending' if retryable and job['attempts'] < max_attempts else 'failed'
@@ -196,27 +247,53 @@ async def fail_job(pool, job_id, lease_token, retryable, max_attempts, actor):
 async def complete_job(pool, job_id, lease_token, result):
     digest = fingerprint(result)
     async with pool.acquire() as conn, conn.transaction():
-        job = await leased_job(conn, job_id, lease_token, lock=True)
+        job, access = await locked_job(conn, job_id, lease_token)
         if job['state'] == 'completed':
             if job['result_fingerprint'] != digest:
                 raise WorkConflict('Completed job received a different result')
             return job
         await validate_result_evidence(conn, job, lease_token, result)
+        limit = access.policy['monthly_alert_limit']
+        used = await conn.fetchval(
+            "SELECT count(*) FROM opportunity_alerts WHERE user_id=$1 AND created_at >= "
+            "(date_trunc('month',now() AT TIME ZONE 'Asia/Kolkata') AT TIME ZONE 'Asia/Kolkata') "
+            "AND created_at < ((date_trunc('month',now() AT TIME ZONE 'Asia/Kolkata') + interval '1 month') "
+            "AT TIME ZONE 'Asia/Kolkata')", job['user_id'])
+        remaining = None if access.developer or limit is None else max(0, limit - used)
+        created_alerts, suppressed, seen_alerts = [], 0, set()
         for alert in result.get('alerts', []):
             # The same canonical event/material revision is one opportunity
             # across agent retries and delivery channels. Account scope is SQL.
             dedupe = fingerprint({key: alert[key] for key in ('ticker','event_id','material_version')})
-            await conn.execute(
-                'INSERT INTO opportunity_alerts(id,user_id,job_id,ticker,direction,summary,evidence,dedupe_key) '
-                'VALUES($1,$2,$3,$4,$5,$6,$7::jsonb,$8) ON CONFLICT(user_id,dedupe_key) DO NOTHING',
+            if dedupe in seen_alerts:
+                continue
+            seen_alerts.add(dedupe)
+            duplicate = await conn.fetchval(
+                'SELECT EXISTS(SELECT 1 FROM opportunity_alerts WHERE user_id=$1 AND dedupe_key=$2)',
+                job['user_id'], dedupe)
+            if duplicate:
+                continue
+            if not access.allows('opportunity_alerts') or remaining == 0:
+                suppressed += 1
+                continue
+            inserted = await conn.fetchval(
+                'INSERT INTO opportunity_alerts(id,user_id,job_id,ticker,direction,summary,evidence,dedupe_key,required_plan) '
+                'VALUES($1,$2,$3,$4,$5,$6,$7::jsonb,$8,$9) ON CONFLICT(user_id,dedupe_key) DO NOTHING RETURNING id',
                 uuid4(), job['user_id'], job_id, alert['ticker'], alert['direction'], alert['summary'],
-                json.dumps(alert['evidence']), dedupe,
+                json.dumps(alert['evidence']), dedupe, job['required_plan'],
             )
+            if inserted is not None:
+                created_alerts.append(alert)
+                if remaining is not None:
+                    remaining -= 1
+        stored_result = {**result, 'alerts': created_alerts, 'alerts_created': len(created_alerts),
+                         'alerts_suppressed': suppressed}
         conversation = job['input'].get('conversation_id')
         if conversation:
             await conn.execute(
-                "INSERT INTO research_messages(id,conversation_id,user_id,role,content,evidence) VALUES($1,$2,$3,'assistant',$4,$5::jsonb)",
-                uuid4(), UUID(conversation), job['user_id'], result['answer'], json.dumps(result['evidence']),
+                "INSERT INTO research_messages(id,conversation_id,user_id,role,content,evidence,required_plan) "
+                "VALUES($1,$2,$3,'assistant',$4,$5::jsonb,$6)",
+                uuid4(), UUID(conversation), job['user_id'], result['answer'], json.dumps(result['evidence']), job['required_plan'],
             )
         for metric, amount in {'completed_jobs': 1, 'reported_tokens': result.get('reported_tokens',0)}.items():
             await conn.execute(
@@ -226,32 +303,61 @@ async def complete_job(pool, job_id, lease_token, result):
         await audit_access(conn, job_id, 'external-agent', 'job.completed')
         return unpack(await conn.fetchrow(
             "UPDATE agent_jobs SET state='completed',result=$2::jsonb,result_fingerprint=$3,finished_at=now() WHERE id=$1 RETURNING *",
-            job_id, json.dumps(result), digest,
+            job_id, json.dumps(stored_result), digest,
         ))
 
 
 async def schedule_due_monitors(pool, settings):
-    async with pool.acquire() as conn, conn.transaction():
-        rows = await conn.fetch(
-            'SELECT m.*,w.tickers FROM monitors m JOIN watchlists w ON w.id=m.watchlist_id '
-            "WHERE m.active AND m.next_run_at<=now() AND (SELECT count(*) FROM agent_jobs j "
-            "WHERE j.user_id=m.user_id AND j.state IN ('pending','running'))<$2 ORDER BY m.next_run_at "
-            'FOR UPDATE OF m SKIP LOCKED LIMIT $1', settings.monitor_batch_size,
-            settings.operational_max_pending_jobs_per_user,
-        )
-        queued = 0
-        for row in rows:
-            await conn.fetchval('SELECT id FROM platform_users WHERE id=$1 FOR UPDATE',row['user_id'])
-            count = await conn.fetchval("SELECT count(*) FROM agent_jobs WHERE user_id=$1 AND state IN ('pending','running')",row['user_id'])
-            if count >= settings.operational_max_pending_jobs_per_user:
+    candidates = await pool.fetch(
+        'SELECT id,user_id FROM monitors WHERE active AND next_run_at<=now() ORDER BY next_run_at LIMIT $1',
+        settings.monitor_batch_size)
+    queued = 0
+    for candidate in candidates:
+        async with pool.acquire() as conn, conn.transaction():
+            await conn.fetchval('SELECT id FROM platform_users WHERE id=$1 FOR UPDATE', candidate['user_id'])
+            row = await conn.fetchrow(
+                'SELECT m.*,w.tickers FROM monitors m LEFT JOIN watchlists w ON w.id=m.watchlist_id '
+                'WHERE m.id=$1 AND m.active AND m.next_run_at<=now() FOR UPDATE OF m SKIP LOCKED', candidate['id'])
+            if row is None:
                 continue
-            tickers = json.loads(row['tickers']) if isinstance(row['tickers'],str) else row['tickers']
-            payload = {'monitor_id':str(row['id']), 'question':row['question'], 'tickers':tickers, 'window':'LAST_6M'}
+            scope = row['scope']
+            tickers = [] if scope == 'market' else (
+                json.loads(row['tickers']) if isinstance(row['tickers'], str) else list(row['tickers']))
+            actor_id = row.get('actor_id')
+            required_plan = 'PRO' if scope == 'market' or (actor_id and actor_id != row['user_id']) else 'FREE'
+            payload = {'monitor_id': str(row['id']), 'question': row['question'], 'tickers': tickers,
+                       'window': 'LAST_6M', 'scope': scope}
+            synthetic_job = {'user_id': row['user_id'], 'actor_id': actor_id, 'kind': 'monitor',
+                             'input': payload, 'required_plan': required_plan}
+            try:
+                from marketgraph_platform.entitlements import load_job_access
+
+                access = await load_job_access(conn, synthetic_job)
+                if not access.developer and not access.pro:
+                    if not access.user.active_selection_initialized:
+                        raise PlatformError(403, 'Select active stocks to resume')
+                    payload['tickers'] = sorted(set(tickers) & set(access.tickers))
+                    if not payload['tickers']:
+                        raise PlatformError(403, 'No active stocks are eligible for this monitor')
+                access.require_job(synthetic_job)
+            except PlatformError as exc:
+                if exc.status != 403:
+                    raise
+                await conn.execute(
+                    "UPDATE monitors SET pause_reason='Current access or stock selection does not permit monitoring',"
+                    "next_run_at=now()+make_interval(secs=>interval_seconds) WHERE id=$1", row['id'])
+                continue
+            count = await conn.fetchval(
+                "SELECT count(*) FROM agent_jobs WHERE user_id=$1 AND state IN ('pending','running')", row['user_id'])
+            if not access.developer and count >= settings.operational_max_pending_jobs_per_user:
+                continue
             key = f"monitor:{row['id']}:{row['next_run_at'].isoformat()}"
+            digest = fingerprint({'kind': 'monitor', 'input': payload, 'actor_id': actor_id})
+            inserted = await conn.fetchval(
+                "INSERT INTO agent_jobs(id,user_id,kind,input,request_key,fingerprint,required_plan,actor_id) "
+                "VALUES($1,$2,'monitor',$3::jsonb,$4,$5,$6,$7) ON CONFLICT(user_id,request_key) DO NOTHING RETURNING id",
+                uuid4(), row['user_id'], json.dumps(payload), key, digest, required_plan, actor_id)
             await conn.execute(
-                "INSERT INTO agent_jobs(id,user_id,kind,input,request_key,fingerprint) VALUES($1,$2,'monitor',$3::jsonb,$4,$5) "
-                'ON CONFLICT(user_id,request_key) DO NOTHING',uuid4(),row['user_id'],json.dumps(payload),key,fingerprint(payload),
-            )
-            await conn.execute('UPDATE monitors SET next_run_at=now()+make_interval(secs=>interval_seconds) WHERE id=$1',row['id'])
-            queued += 1
-        return queued
+                'UPDATE monitors SET pause_reason=NULL,next_run_at=now()+make_interval(secs=>interval_seconds) WHERE id=$1', row['id'])
+            queued += inserted is not None
+    return queued

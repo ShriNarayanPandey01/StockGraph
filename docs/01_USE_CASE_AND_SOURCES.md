@@ -30,7 +30,7 @@ Equity research and algorithmic swing trading require synthesizing three fundame
 ### Flow B: Scheduled Background Ingestion (The Cron Pipeline)
 1. **Cron Triggers:** No realtime/websockets. The **30-minute cron runs news-only** (paid news APIs + NSE/BSE Reg-30 filings). Price series record **two daily checkpoints per ticker**: Market Open (~9:30 AM IST) and Market Close (~7:00 PM IST with Bhavcopy delivery). Monthly MF/macro feeds are defined as abstract interfaces with pending implementation.
 2. **Dual Routing:**
-   - **Numeric Time-Series -> PostgreSQL/TimescaleDB:** Stored as two daily snapshot rows per ticker (`OPEN` session for open price/sentiment; `CLOSE` session for close price, official Bhavcopy delivery volume/%, and calculated 20d z-scores). Frontend UI embeds **TradingView Lightweight Charts** directly in the browser; backend does not store heavy intraday tick or minute data. NSE Bhavcopy (`sec_bhavdata_full.csv`) is the **primary source** for Delivery % and turnover.
+   - **Numeric Time-Series -> PostgreSQL/TimescaleDB:** Stored as two daily snapshot rows per ticker (`OPEN` session for open price/sentiment; `CLOSE` session for close price, official Bhavcopy delivery volume/%, and calculated 20d z-scores). A future client may render charts from the available data; the backend does not store heavy intraday tick or minute data. NSE Bhavcopy (`sec_bhavdata_full.csv`) is the **primary source** for Delivery % and turnover.
    - **Qualitative Catalysts -> FalkorDB (L1–L3 Dedup + Context-Aware Routing + L4 Correlation):**
      - **L1 exact at ingestion:** canonicalize the URL, check Redis `SETNX seen:<url_hash>`, then `MERGE` a deterministic `(:NewsEvent)` id (`sha1(headline + primary_entity + date)`). Exact hits are dropped before any LLM/embedding work.
      - **L2 near-dup before chunking:** normalized-headline comparison within the 48h window. Matches link `[:DUPLICATE_OF]` — no chunking or embedding is spent.
@@ -71,8 +71,8 @@ Equity research and algorithmic swing trading require synthesizing three fundame
 
 ---
 
-## 4. Vendor Selection Criteria & Frontend Charting (TradingView)
-The UI embeds **TradingView Lightweight Charts** directly in the browser for candlestick chart visualization. In the backend, the chart vendor is accessed through `ChartProviderAdapter` (generic, swappable, e.g. Upstox) to capture the 2 daily session checkpoints (`OPEN` and `CLOSE`). Official exchange Bhavcopy (`sec_bhavdata_full.csv`) is the **primary source** for security-wise delivery volume and percentage. TimescaleDB stores only lightweight checkpoint rows, never heavy intraday tick or minute data.
+## 4. Vendor Selection Criteria & Charting Separation
+No browser chart UI is currently included. A future client may render interactive candlesticks using TradingView Lightweight Charts. In the backend, the chart vendor is accessed through `ChartProviderAdapter` (generic, swappable, e.g. Upstox) to capture the 2 daily session checkpoints (`OPEN` and `CLOSE`). Official exchange Bhavcopy (`sec_bhavdata_full.csv`) is the **primary source** for security-wise delivery volume and percentage. TimescaleDB stores only lightweight checkpoint rows, never heavy intraday tick or minute data.
 
 ## 5. Backfill Watermark Protocol & Configurable Thresholds
 `vendor_sync_state (vendor_id, ticker, series, last_trade_date, last_fetched_at)` records the last data pushed per series. Each sync compares the vendor response against the watermark and inserts only rows with `trade_date > last_trade_date`, then advances the watermark. Revisions arrive as new vintages (immutable staging, never overwrite); gaps or vendor errors are logged to `ingest_runs` for replay. Dedup, correlation, and ontology confidence thresholds (`dedup_cosine_threshold=0.92`, `dedup_window_hours=48`, `correlation_min_cosine=0.68`, `correlation_window_days=14`, `ontology_min_confidence=0.65`) live in settings, never hardcoded.

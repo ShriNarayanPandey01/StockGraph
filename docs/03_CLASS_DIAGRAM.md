@@ -2,6 +2,8 @@
 
 > **Current deployment architecture:** Read [docs/04_SERVICE_BOUNDARIES.md](04_SERVICE_BOUNDARIES.md) first. It supersedes the legacy single-service layout, combined dossier, selective macro baseline, YAML runtime registry, and 30-minute news cadence below. Production services are `services/upstox/` (SQL/source ingestion) and `services/stockgraph/` (FalkorDB/LLM), with hourly news and API registration.
 
+> For OOP diagrams matching the implemented services, read the [current class diagrams](architecture/README.md). The diagrams below describe the original shared design model.
+
 > Source of truth for Milestone 1+ code. `window=LAST_6M | LAST_1Y` only (no `from_date/to_date`, no all-time). Numerics are SQL-only via `ChartProviderAdapter`; graph holds news/snapshots/deals/holdings. Anomalies are SQL queries, never graph nodes.
 
 ## 1. Mermaid OOP Class Diagram

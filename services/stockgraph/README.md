@@ -1,5 +1,7 @@
 # StockGraph service
 
+See [the StockGraph system design and class diagram](../../docs/architecture/stockgraph-service.md).
+
 Owns FalkorDB and graph processing state in Redis. It has no SQL driver,
 data-service Python dependency, provider credentials, or numeric-history API.
 
@@ -40,8 +42,12 @@ status, and pagination. Only `LAST_6M` and `LAST_1Y` are accepted. Follow
 it is null. Each section has an explicit `has_more` flag. Snapshots expire in
 one hour by default. This API returns data, not an interactive graph frontend.
 
-The MCP stdio tool `get_stock_graph_context` calls the same API; set
-`STOCKGRAPH_API_URL` if it is not at `http://localhost:8000`.
+Direct domain routes require `X-Internal-Service-Key` matching
+`MARKETGRAPH_INTERNAL_SERVICE_KEY`. Ordinary requests exclude professional
+evidence before pagination. Trusted Platform requests determine evidence scope.
+The local stdio MCP tools call Platform: set `MARKETGRAPH_PLATFORM_URL` and
+`MARKETGRAPH_PLATFORM_TOKEN` to inherit the same user permissions. No remote MCP
+server is deployed.
 
 ## Inference
 

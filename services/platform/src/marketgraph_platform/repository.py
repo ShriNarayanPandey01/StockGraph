@@ -61,15 +61,18 @@ class Repository:
     async def provision_user(self, name: str, digest: str, professional_verified: bool = False) -> UUID:
         user_id = uuid4()
         async with self.pool.acquire() as con, con.transaction():
-            await con.execute("INSERT INTO platform_users(id,name,professional_verified) VALUES($1,$2,$3)",
-                              user_id, name, professional_verified)
+            await con.execute("INSERT INTO platform_users(id,name,professional_verified,roles) VALUES($1,$2,$3,$4::jsonb)",
+                              user_id, name, professional_verified,
+                              json.dumps(["USER", "PROFESSIONAL"] if professional_verified else ["USER"]))
             await con.execute("INSERT INTO platform_tokens(id,user_id,digest) VALUES($1,$2,$3)", uuid4(), user_id, digest)
         return user_id
 
     async def authenticate(self, digest: str):
-        row = await self.pool.fetchrow("""SELECT u.id,u.name,u.professional_verified FROM platform_users u
-            JOIN platform_tokens t ON t.user_id=u.id WHERE t.digest=$1 AND t.revoked_at IS NULL""", digest)
-        return dict(row) if row else None
+        row = await self.pool.fetchrow("""SELECT u.id,u.name,u.email,u.email_verified,u.professional_verified,
+            u.is_developer,u.disabled,u.roles,u.plan,u.plan_expires_at,u.active_selection_initialized
+            FROM platform_users u JOIN platform_tokens t ON t.user_id=u.id
+            WHERE t.digest=$1 AND t.revoked_at IS NULL AND (t.expires_at IS NULL OR t.expires_at>now())""", digest)
+        return {**dict(row), "roles": json_value(row["roles"])} if row else None
 
     async def rotate_token(self, user_id: UUID, digest: str):
         async with self.pool.acquire() as con, con.transaction():
@@ -86,6 +89,8 @@ class Repository:
             if previous["professional_verified"] == verified:
                 return
             revision = await con.fetchval("""UPDATE platform_users SET professional_verified=$2,
+                roles=CASE WHEN $2 THEN CASE WHEN roles ? 'PROFESSIONAL' THEN roles
+                ELSE roles || '["PROFESSIONAL"]'::jsonb END ELSE roles - 'PROFESSIONAL' END,
                 verification_revision=verification_revision+1 WHERE id=$1 RETURNING verification_revision""", user_id, verified)
             await self._event(con, previous, "professional.author-status",
                               {"author_id": str(user_id), "verified": verified}, revision)
@@ -111,11 +116,18 @@ class Repository:
 
     async def _locked(self, con, contribution_id: UUID, user: Principal | None, expected_revision: int):
         row = await con.fetchrow("SELECT * FROM platform_contributions WHERE id=$1 FOR UPDATE", contribution_id)
-        if row is None or (user is not None and row["author_id"] != user.id):
+        if row is None or (user is not None and not user.is_developer and row["author_id"] != user.id):
             raise PlatformError(404, "Contribution not found")
         if row["revision"] != expected_revision:
             raise PlatformError(409, "Contribution changed; reload its revision")
+        if user is not None and user.is_developer:
+            await self.audit_developer(con, user.id, "contribution.mutate", row["author_id"])
         return row
+
+    async def audit_developer(self, con, actor_id, action, target_id=None):
+        await con.execute(
+            "INSERT INTO platform_admin_audit(actor_id,target_user_id,action,details) VALUES($1,$2,$3,'{}')",
+            actor_id, target_id, action)
 
     async def _insert_version(self, con, contribution_id: UUID, data: ContributionInput, number: int):
         version_id = uuid4()
@@ -161,9 +173,12 @@ class Repository:
 
     async def detail(self, contribution_id: UUID, user: Principal):
         # Drafts/review material stay private to their author. Reviewers use the submitted queue.
-        row = await self.pool.fetchrow("SELECT * FROM platform_contributions WHERE id=$1 AND author_id=$2", contribution_id, user.id)
+        row = await self.pool.fetchrow("SELECT * FROM platform_contributions WHERE id=$1 AND (author_id=$2 OR $3)",
+                                       contribution_id, user.id, user.is_developer)
         if not row:
             raise PlatformError(404, "Contribution not found")
+        if user.is_developer:
+            await self.audit_developer(self.pool, user.id, "contribution.read", row["author_id"])
         versions = await self.pool.fetch("""SELECT v.*,s.submitted_at,p.published_at FROM platform_contribution_versions v
             LEFT JOIN platform_submissions s ON s.version_id=v.id LEFT JOIN platform_publications p ON p.version_id=v.id
             WHERE v.contribution_id=$1 ORDER BY version_number""", contribution_id)
@@ -173,7 +188,7 @@ class Repository:
                 "reviews": [dict(r) for r in reviews]}
 
     async def list_mine(self, user: Principal):
-        rows = await self.pool.fetch("SELECT * FROM platform_contributions WHERE author_id=$1 ORDER BY updated_at DESC LIMIT 200", user.id)
+        rows = await self.pool.fetch("SELECT * FROM platform_contributions WHERE author_id=$1 OR $2 ORDER BY updated_at DESC LIMIT 200", user.id, user.is_developer)
         return [dict(row) for row in rows]
 
     async def submit(self, contribution_id: UUID, user: Principal, expected_revision: int):
@@ -192,8 +207,8 @@ class Repository:
         rows = await self.pool.fetch("""SELECT c.id,c.revision,c.author_id,u.name AS author_name,u.professional_verified,
             v.id AS version_id,v.content,v.known_at,s.submitted_at FROM platform_contributions c
             JOIN platform_users u ON u.id=c.author_id JOIN platform_contribution_versions v ON v.id=c.current_version_id
-            JOIN platform_submissions s ON s.version_id=v.id WHERE c.status='SUBMITTED' AND c.author_id<>$1
-            ORDER BY s.submitted_at LIMIT 100""", user.id)
+            JOIN platform_submissions s ON s.version_id=v.id WHERE c.status='SUBMITTED' AND (c.author_id<>$1 OR $2)
+            ORDER BY s.submitted_at LIMIT 100""", user.id, user.is_developer)
         return [{**dict(row), "content": json_value(row["content"])} for row in rows]
 
     async def _event(self, con, row, kind: str, payload: dict, revision: int):
@@ -206,17 +221,19 @@ class Repository:
     async def review(self, contribution_id: UUID, user: Principal, expected_revision: int, decision: str, reason: str):
         async with self.pool.acquire() as con, con.transaction():
             row = await self._locked(con, contribution_id, None, expected_revision)
-            if row["author_id"] == user.id:
+            if row["author_id"] == user.id and not user.is_developer:
                 raise PlatformError(403, "Independent review requires a different person")
             if row["status"] != "SUBMITTED":
                 raise PlatformError(409, "Contribution is not awaiting review")
             version = await con.fetchrow("SELECT * FROM platform_contribution_versions WHERE id=$1", row["current_version_id"])
             author = await con.fetchrow("SELECT * FROM platform_users WHERE id=$1 FOR SHARE", row["author_id"])
-            if decision == "APPROVE" and not author["professional_verified"]:
+            if decision == "APPROVE" and not author["professional_verified"] and not user.is_developer:
                 raise PlatformError(409, "Professional credentials must be verified before publication")
             now = datetime.now(UTC)
             if decision == "APPROVE" and version["expires_at"] <= now:
                 raise PlatformError(422, "Cannot approve expired evidence")
+            if user.is_developer:
+                await self.audit_developer(con, user.id, "contribution.review-override", row["author_id"])
             await con.execute("""INSERT INTO platform_reviews(id,version_id,reviewer_id,decision,reason)
                 VALUES($1,$2,$3,$4,$5)""", uuid4(), version["id"], user.id, decision, reason)
             status = "PUBLISHED" if decision == "APPROVE" else "REJECTED"
@@ -276,3 +293,5 @@ class Repository:
 
     async def housekeeping(self):
         await self.pool.execute("DELETE FROM platform_request_buckets WHERE bucket<floor(extract(epoch from now())/60)::bigint-2")
+        await self.pool.execute("DELETE FROM platform_auth_rate_buckets WHERE bucket<floor(extract(epoch from now())/60)::bigint-1440")
+        await self.pool.execute("DELETE FROM platform_auth_challenges WHERE expires_at<now()-interval '1 day'")

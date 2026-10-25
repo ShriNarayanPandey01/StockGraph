@@ -7,6 +7,7 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 class Settings(BaseSettings):
     model_config = SettingsConfigDict(env_file=".env", extra="ignore")
 
+    internal_service_key: SecretStr = Field(default=SecretStr(""), validation_alias="MARKETGRAPH_INTERNAL_SERVICE_KEY", repr=False)
     falkor_host: str = "localhost"
     falkor_port: int = 6379
     falkor_graph_name: str = "stock_graph"

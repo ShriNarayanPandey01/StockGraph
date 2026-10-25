@@ -152,6 +152,8 @@ async def test_empty_vendor_response_uses_official_close(monkeypatch):
     )
     config = SimpleNamespace(
         upstox_analytics_token="",
+        redis_url="redis://localhost:6380/0",
+        upstox_requests_per_minute=120,
         upstox_api_base_url="unused",
         upstox_timeout_seconds=1,
         upstox_max_retries=0,

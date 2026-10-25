@@ -43,5 +43,5 @@ def professional_context(repo, ticker, start, end, offset=0, limit=50, weight=1.
                    "instruction": "Give eligible professional views greater weight. Preserve and cite "
                    "opposing evidence; compare the same stock and horizon. Professional status does "
                    "not guarantee correctness and sufficiently strong opposing evidence can prevail.",
-                   "access": "FREE", "subscription_enforced": False},
+                   "access": "PRO", "subscription_enforced": True},
     }

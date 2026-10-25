@@ -25,6 +25,12 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 TABLES = (
     "platform_users",
     "platform_tokens",
+    "platform_auth_challenges",
+    "platform_auth_rate_buckets",
+    "platform_admin_audit",
+    "platform_plan_policies",
+    "platform_active_stocks",
+    "platform_broker_connections",
     "platform_contributions",
     "platform_contribution_versions",
     "platform_contribution_requests",
@@ -49,6 +55,37 @@ MIGRATIONS = (
     Path(__file__).resolve().parents[1] / "services/platform/src/marketgraph_platform/migrations"
 )
 MAX_ARCHIVE_BYTES = 4 * 1024**3
+
+DEFAULT_PLAN_POLICIES = {
+    "FREE": {
+        "active_stock_limit": 10,
+        "monthly_alert_limit": 10,
+        "features": {
+            "professional_evidence": False,
+            "research_chat": True,
+            "discovery": False,
+            "opportunity_alerts": True,
+            "stock_connections": True,
+            "monitoring": True,
+            "market_monitoring": False,
+        },
+        "revision": 1,
+    },
+    "PRO": {
+        "active_stock_limit": None,
+        "monthly_alert_limit": None,
+        "features": {
+            "professional_evidence": True,
+            "research_chat": True,
+            "discovery": True,
+            "opportunity_alerts": True,
+            "stock_connections": True,
+            "monitoring": True,
+            "market_monitoring": True,
+        },
+        "revision": 1,
+    },
+}
 
 
 class PlatformDataSettings(BaseSettings):
@@ -107,6 +144,41 @@ async def _columns(conn, table, schema):
             table,
         )
     ]
+
+
+async def _seeded_plan_policies(conn, schema) -> bool:
+    rows = await conn.fetch(
+        f"SELECT plan,active_stock_limit,monthly_alert_limit,features,revision "
+        f"FROM {_schema(schema)}.platform_plan_policies ORDER BY plan"
+    )
+    if not rows:
+        return False
+    values = []
+    for row in rows:
+        item = dict(row)
+        features = item["features"]
+        if isinstance(features, str):
+            features = json.loads(features)
+        values.append(
+            {
+                "plan": item["plan"],
+                "active_stock_limit": item["active_stock_limit"],
+                "monthly_alert_limit": item["monthly_alert_limit"],
+                "features": features,
+                "revision": item["revision"],
+            }
+        )
+    expected = [
+        {
+            "plan": plan,
+            "active_stock_limit": policy["active_stock_limit"],
+            "monthly_alert_limit": policy["monthly_alert_limit"],
+            "features": policy["features"],
+            "revision": policy["revision"],
+        }
+        for plan, policy in sorted(DEFAULT_PLAN_POLICIES.items())
+    ]
+    return values == expected
 
 
 async def backup_connection(conn, destination: Path, *, schema="public") -> Path:
@@ -195,11 +267,16 @@ async def restore_connection(conn, source: Path, *, schema="public") -> None:
                 + ",".join(f'{_schema(schema)}."{table}"' for table in TABLES)
                 + " IN ACCESS EXCLUSIVE MODE"
             )
+            seeded_policy_rows = await _seeded_plan_policies(conn, schema)
             for table in TABLES:
                 if await conn.fetchval(f'SELECT EXISTS(SELECT 1 FROM {_schema(schema)}."{table}")'):
+                    if table == "platform_plan_policies" and seeded_policy_rows:
+                        continue
                     raise ValueError("Restore requires an empty initialized platform database")
                 if await _columns(conn, table, schema) != manifest["tables"][table]["columns"]:
                     raise ValueError("Target column types do not match the platform archive")
+            if seeded_policy_rows:
+                await conn.execute(f'DELETE FROM {_schema(schema)}."platform_plan_policies"')
             await conn.execute("SET CONSTRAINTS ALL DEFERRED")
             for table in TABLES:
                 entry = manifest["tables"][table]

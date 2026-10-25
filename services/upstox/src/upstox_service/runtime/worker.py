@@ -17,13 +17,14 @@ from upstox_service.config.settings import Settings
 async def run():
     config = Settings()
     repository = DataRepository(config.timescale_dsn)
+    redis = Redis.from_url(config.redis_url, decode_responses=True)
     client = UpstoxClient(
         config.upstox_analytics_token,
         base_url=config.upstox_api_base_url,
         timeout=config.upstox_timeout_seconds,
         max_retries=config.upstox_max_retries,
+        redis_client=redis, requests_per_minute=config.upstox_requests_per_minute,
     )
-    redis = Redis.from_url(config.redis_url, decode_responses=True)
     publisher = RedisPublisher(redis, config.event_stream)
     worker = RegistrationWorker(
         repository,

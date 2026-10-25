@@ -27,6 +27,7 @@ class GraphContextService:
         offset: int = 0,
         limit: int = 50,
         as_of_ts: int | None = None,
+        *, include_professional: bool = False,
     ) -> GraphContextResponse:
         ticker = ticker.upper()
         stock = self._repo.get_entity("Stock", ticker)
@@ -116,7 +117,7 @@ class GraphContextService:
                 )
             )
         professional = {"items": [], "policy": {}, "pagination": {"has_more": False}}
-        if hasattr(self._repo, "professional_page"):
+        if include_professional and hasattr(self._repo, "professional_page"):
             professional = professional_context(self._repo, ticker, start, end, offset, limit,
                                                 settings.professional_evidence_weight)
             for view in professional["items"]:

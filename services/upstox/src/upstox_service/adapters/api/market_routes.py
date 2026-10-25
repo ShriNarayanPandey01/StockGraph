@@ -13,6 +13,7 @@ from fastapi import APIRouter, HTTPException, Query, Request
 from pydantic import BaseModel, ConfigDict, Field
 from redis.asyncio import Redis
 
+from upstox_service.adapters.api.credentials import credential_context
 from upstox_service.adapters.providers.upstox.client import ProviderError
 from upstox_service.adapters.providers.upstox.market import (
     MarketInstrumentAmbiguous,
@@ -163,6 +164,8 @@ def _provider_as_of(data: Any) -> str | None:
 def _provider_http_error(exc: ProviderError) -> HTTPException:
     status = getattr(exc, "status_code", None)
     if status in {401, 403}:
+        if credential_context.get() is not None:
+            return HTTPException(401, "broker_reconnect_required: Upstox credential rejected")
         return HTTPException(503, "Upstox authorization or market-data entitlement is unavailable")
     if status == 404:
         return HTTPException(404, "Requested Upstox market data is unavailable")
@@ -186,6 +189,8 @@ def create_market_router(
     async def respond(
         cache_parts: tuple[Any, ...], ttl: int, fetch: Callable[[], Awaitable[DataT]]
     ) -> dict[str, Any]:
+        context = credential_context.get()
+        cache_parts = (context.scope if context else "shared", *cache_parts)
         encoded = json.dumps(cache_parts, sort_keys=True, default=str, separators=(",", ":"))
         key = "upstox:market:v1:" + hashlib.sha256(encoded.encode()).hexdigest()
         try:

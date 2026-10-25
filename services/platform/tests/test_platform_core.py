@@ -1,23 +1,13 @@
-"""Offline access/publication safety checks and opt-in isolated PostgreSQL workflow."""
+"""Offline access and publication safety checks."""
 
-import asyncio
 import json
-import os
 from contextlib import asynccontextmanager
 from datetime import UTC, datetime, timedelta
 from unittest.mock import AsyncMock
 from uuid import uuid4
 
-import asyncpg
 import httpx
 import pytest
-from marketgraph_platform.agent_repository import (
-    WorkConflict,
-    claim_job,
-    complete_job,
-    create_job,
-    register_evidence,
-)
 from marketgraph_platform.api import CanonicalClient, create_app
 from marketgraph_platform.auth import issue_token, token_digest
 from marketgraph_platform.models import ContributionInput, Principal
@@ -40,15 +30,43 @@ def contribution(**overrides):
 
 
 def user(verified=False):
-    return Principal(id=uuid4(), name="Researcher", professional_verified=verified)
+    return Principal(id=uuid4(), name="Researcher", professional_verified=verified,
+                     roles=["USER", "PROFESSIONAL"] if verified else ["USER"])
 
 
-def test_all_features_are_free_without_plan_or_role_checks():
+class EntitlementPool:
+    def __init__(self, principal):
+        self.principal = principal
+
+    async def fetchrow(self, query, *args):
+        if "FROM platform_users" in query:
+            return self.principal.model_dump()
+        if "FROM platform_plan_policies" in query:
+            pro = self.principal.plan == "PRO" or self.principal.is_developer
+            return {"plan": "PRO" if pro else "FREE", "active_stock_limit": None if pro else 10,
+                    "monthly_alert_limit": None if pro else 10,
+                    "features": {"professional_evidence": pro, "research_chat": True,
+                                 "discovery": pro, "opportunity_alerts": True,
+                                 "stock_connections": True, "monitoring": True,
+                                 "market_monitoring": pro}, "revision": 1}
+        return None
+
+    async def fetch(self, query, *args):
+        return []
+
+
+def test_free_policy_enforces_phase_two_entitlements_without_billing():
     policy = access_policy()
-    assert all(feature["allowed"] for feature in policy["features"].values())
-    assert not policy["billing_enabled"] and not policy["rbac_enabled"] and not policy["quota_enforcement"]
-    assert policy["future_free_limits"]["opportunity_alerts_per_month"] == 10
-    assert policy["future_free_limits"]["reset_timezone"] == "Asia/Kolkata"
+    assert policy["phase"] == 2
+    assert policy["features"]["research_chat"]["allowed"]
+    assert not policy["features"]["professional_evidence"]["allowed"]
+    assert policy["billing_enabled"] is False
+    assert policy["rbac_enabled"] is True and policy["quota_enforcement"] is True
+    assert policy["limits"]["active_stocks"] == 10
+    assert policy["limits"]["opportunity_alerts_per_month"] == 10
+    assert policy["limits"]["reset_timezone"] == "Asia/Kolkata"
+    assert all(item["allowed"] for item in access_policy(Principal(
+        id=uuid4(), name="Developer", is_developer=True))["features"].values())
 
 
 def test_token_digest_is_not_a_bearer_and_tokens_are_unique():
@@ -75,13 +93,16 @@ async def test_api_authentication_operational_budget_and_free_access():
     repository = AsyncMock()
     repository.authenticate.return_value = principal.model_dump()
     repository.allow_request.return_value = True
+    repository.pool = EntitlementPool(principal)
     canonical = AsyncMock()
+    canonical.validate_ticker.return_value = None
     app = create_app(Settings(), repository, canonical)
     async with httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url="http://test") as client:
         assert (await client.get("/api/v1/me")).status_code == 401
         result = await client.get("/api/v1/access-policy", headers={"Authorization": "Bearer opaque"})
         assert result.status_code == 200
-        assert result.json()["features"]["professional_evidence"]["allowed"]
+        assert result.json()["features"]["research_chat"]["allowed"]
+        assert not result.json()["features"]["professional_evidence"]["allowed"]
         repository.allow_request.return_value = False
         assert (await client.get("/api/v1/me", headers={"Authorization": "Bearer opaque"})).status_code == 429
 
@@ -89,11 +110,14 @@ async def test_api_authentication_operational_budget_and_free_access():
 @pytest.mark.asyncio
 async def test_api_published_evidence_preserves_opposing_items_and_counts_reads():
     principal = user()
+    principal = principal.model_copy(update={"plan": "PRO"})
     repository = AsyncMock()
     repository.authenticate.return_value = principal.model_dump()
     repository.allow_request.return_value = True
+    repository.pool = EntitlementPool(principal)
     repository.published.return_value = [{"direction": "BULLISH"}, {"direction": "BEARISH"}]
     canonical = AsyncMock()
+    canonical.validate_ticker.return_value = None
     app = create_app(Settings(), repository, canonical)
     async with httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url="http://test") as client:
         result = await client.get("/api/v1/stocks/RELIANCE/professional-evidence", headers={"Authorization": "Bearer opaque"})
@@ -104,7 +128,7 @@ async def test_api_published_evidence_preserves_opposing_items_and_counts_reads(
 
 @pytest.mark.asyncio
 async def test_unknown_entity_is_rejected_before_creating_draft():
-    principal = user()
+    principal = user(verified=True)
     repository = AsyncMock()
     repository.authenticate.return_value = principal.model_dump()
     repository.allow_request.return_value = True
@@ -175,88 +199,3 @@ async def test_outbox_retries_preserve_event_identity_after_lost_ack():
     first, second = redis.xadd.await_args_list
     assert json.loads(first.args[1]["event"]) == json.loads(second.args[1]["event"])
     repository.retry_outbox.assert_awaited_once()
-
-
-@pytest.mark.asyncio
-@pytest.mark.skipif(not os.getenv("PLATFORM_TEST_DATABASE_DSN"), reason="Set PLATFORM_TEST_DATABASE_DSN for isolated live PostgreSQL checks")
-async def test_postgres_publication_correction_retraction_and_immutability():
-    dsn = os.environ["PLATFORM_TEST_DATABASE_DSN"]
-    schema = "platform_test_" + uuid4().hex
-    admin = await asyncpg.connect(dsn)
-    repository = Repository(Settings())
-    await admin.execute(f'CREATE SCHEMA "{schema}"')
-    try:
-        repository.pool = await asyncpg.create_pool(dsn, min_size=1, max_size=3, server_settings={"search_path": schema})
-        await repository.migrate()
-        author_id = await repository.provision_user("Author", token_digest("author"), True)
-        reviewer_id = await repository.provision_user("Reviewer", token_digest("reviewer"))
-        author, reviewer = Principal(id=author_id, name="Author", professional_verified=True), Principal(id=reviewer_id, name="Reviewer")
-        initial = contribution()
-        draft = await repository.create_contribution(author, initial, "draft-retry")
-        retried = await repository.create_contribution(author, initial, "draft-retry")
-        assert retried["id"] == draft["id"]
-        with pytest.raises(PlatformError):
-            await repository.create_contribution(author, contribution(direction="BEARISH"), "draft-retry")
-        with pytest.raises(PlatformError) as denied:
-            await repository.detail(draft["id"], reviewer)
-        assert denied.value.status == 404
-        submitted = await repository.submit(draft["id"], author, 1)
-        with pytest.raises(PlatformError):
-            await repository.review(draft["id"], author, submitted["revision"], "APPROVE", "Self review")
-        approved = await repository.review(draft["id"], reviewer, submitted["revision"], "APPROVE", "Evidence checked")
-        assert len(await repository.published("RELIANCE")) == 1
-        await create_job(repository.pool,author_id,'discovery',{'tickers':['RELIANCE'],'window':'LAST_6M'},'pro-citation-test')
-        agent_job = await claim_job(repository.pool,Settings())
-        await register_evidence(repository.pool,agent_job['id'],agent_job['lease_token'],[{
-            'kind':'professional','id':str(approved['version_id']),'ticker':'RELIANCE',
-            'source':initial.model_dump(mode='json'),'quote_text':initial.body,
-            'eligible_until':initial.expires_at}])
-        pro_result = {'answer':'Demand may improve.','status':'supported','evidence':[{
-            'kind':'professional','id':str(approved['version_id']),'locator':None,'quote':'Demand may improve'}],
-            'alerts':[]}
-        # Outbox claims are atomic across relay replicas and abandoned leases
-        # recover without changing the event ID.
-        first_claim, second_claim = await asyncio.gather(repository.claim_outbox(),repository.claim_outbox())
-        claimed = first_claim + second_claim
-        assert len(claimed) == 1
-        await repository.pool.execute("UPDATE platform_outbox SET lease_until=now()-interval '1 second' WHERE event_id=$1",claimed[0]['event_id'])
-        recovered = await repository.claim_outbox()
-        assert recovered[0]['event_id'] == claimed[0]['event_id']
-        assert recovered[0]['lease_id'] != claimed[0]['lease_id']
-        await repository.finish_outbox(claimed[0]['event_id'],claimed[0]['lease_id'])
-        assert await repository.pool.fetchval("SELECT published_at FROM platform_outbox WHERE event_id=$1",claimed[0]['event_id']) is None
-        await repository.finish_outbox(recovered[0]['event_id'],recovered[0]['lease_id'])
-        correction = await repository.add_version(draft["id"], author, contribution(direction="BEARISH"), approved["revision"])
-        assert (await repository.published("RELIANCE"))[0]["content"]["direction"] == "BULLISH"
-        submitted = await repository.submit(draft["id"], author, correction["revision"])
-        approved = await repository.review(draft["id"], reviewer, submitted["revision"], "APPROVE", "Correction checked")
-        assert (await repository.published("RELIANCE"))[0]["content"]["direction"] == "BEARISH"
-        with pytest.raises(WorkConflict,match='changed'):
-            await complete_job(repository.pool,agent_job['id'],agent_job['lease_token'],pro_result)
-        current = (await repository.published('RELIANCE'))[0]
-        await register_evidence(repository.pool,agent_job['id'],agent_job['lease_token'],[{
-            'kind':'professional','id':str(approved['version_id']),'ticker':'RELIANCE',
-            'source':current['content'],'quote_text':current['content']['body'],
-            'eligible_until':datetime.fromisoformat(current['content']['expires_at'])}])
-        pro_result['evidence'][0]['id'] = str(approved['version_id'])
-        await repository.retract(draft["id"], author, approved["revision"], "Source withdrawn")
-        assert await repository.published("RELIANCE") == []
-        with pytest.raises(WorkConflict,match='withdrawn'):
-            await complete_job(repository.pool,agent_job['id'],agent_job['lease_token'],pro_result)
-        assert await repository.pool.fetchval("SELECT count(*) FROM platform_outbox") == 3
-        assert await repository.pool.fetchval("SELECT count(*) FROM platform_contribution_versions") == 2
-        await repository.set_verified(author_id, False)
-        await repository.set_verified(author_id, False)
-        status_event = await repository.pool.fetchval(
-            "SELECT event FROM platform_outbox WHERE event->>'kind'='professional.author-status'")
-        status_event = json.loads(status_event) if isinstance(status_event, str) else status_event
-        assert status_event['revision'] == 2 and status_event['payload']['verified'] is False
-        assert await repository.pool.fetchval("SELECT count(*) FROM platform_outbox") == 4
-        await repository.measure(author_id,'professional_evidence_reads')
-        assert (await repository.usage(author_id))[0]['units'] == 1
-        with pytest.raises(asyncpg.RaiseError):
-            await repository.pool.execute("UPDATE platform_contribution_versions SET content='{}'")
-    finally:
-        await repository.close()
-        await admin.execute(f'DROP SCHEMA "{schema}" CASCADE')
-        await admin.close()

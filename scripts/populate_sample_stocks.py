@@ -162,7 +162,13 @@ async def _wait_for_job(
 
 
 async def populate(args: argparse.Namespace) -> int:
+    from upstox_service.config.settings import Settings
     from upstox_service.runtime.scheduler import equity_universe_job
+
+    key = Settings().internal_service_key.get_secret_value()
+    if not key:
+        raise ValueError("MARKETGRAPH_INTERNAL_SERVICE_KEY is required for service API access")
+    headers = {"X-Internal-Service-Key": key}
 
     symbols = normalize_symbols(args.symbols)
     if args.wait_seconds < 1 or args.poll_seconds <= 0:
@@ -179,8 +185,8 @@ async def populate(args: argparse.Namespace) -> int:
         print("Equity-universe refresh: SUCCESS", flush=True)
 
     async with (
-        httpx.AsyncClient(base_url=args.data_url.rstrip("/"), timeout=30) as data_client,
-        httpx.AsyncClient(base_url=args.graph_url.rstrip("/"), timeout=30) as graph_client,
+        httpx.AsyncClient(base_url=args.data_url.rstrip("/"), timeout=30, headers=headers) as data_client,
+        httpx.AsyncClient(base_url=args.graph_url.rstrip("/"), timeout=30, headers=headers) as graph_client,
     ):
         await _health(data_client, "Upstox Data Service")
         await _health(graph_client, "StockGraph")

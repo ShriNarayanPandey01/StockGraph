@@ -390,7 +390,7 @@ def test_api_registration_returns_accepted_and_separate_processing_status():
             return {"job_id": job, "state": "graph_processing"}
 
     broker, repo = Broker(), Repo()
-    client = TestClient(create_app(repo, broker, Data()))
+    client = TestClient(create_app(repo, broker, Data()), headers={"X-Internal-Service-Key": "test-internal-key"})
     response = client.post("/api/v1/stocks", json={"query": "Reliance"})
     assert response.status_code == 202
     job = str(uuid4())
@@ -412,7 +412,7 @@ def test_manual_graph_api_proxies_entities_news_and_stock_registration():
         async def submit_manual_news(self, payload):
             return {"external_id": "manual-1", "state": "queued", "headline": payload["headline"]}
 
-    client = TestClient(create_app(Repo(), Broker(), Data()))
+    client = TestClient(create_app(Repo(), Broker(), Data()), headers={"X-Internal-Service-Key": "test-internal-key"})
     assert client.post("/api/v1/manual/stocks", json={"query": "Reliance"}).status_code == 202
     entity = client.post(
         "/api/v1/manual/entities/Commodity",
@@ -432,7 +432,7 @@ def test_manual_graph_api_proxies_entities_news_and_stock_registration():
 
 
 def test_developer_edge_api_is_disabled_by_default():
-    client = TestClient(create_app(Repo(), Broker(), object()))
+    client = TestClient(create_app(Repo(), Broker(), object()), headers={"X-Internal-Service-Key": "test-internal-key"})
     response = client.post(
         "/api/v1/developer/edges",
         json={
@@ -478,7 +478,8 @@ def test_developer_edge_api_creates_and_deletes_only_developer_links(monkeypatch
     monkeypatch.setattr(settings, "developer_graph_mutations_enabled", True)
     monkeypatch.setattr(api_module, "renewable_lock", graph_lock)
     repo = DeveloperRepo()
-    client = TestClient(create_app(repo, Broker(), object()))
+    client = TestClient(create_app(repo, Broker(), object()), headers={"X-Internal-Service-Key": "test-internal-key"})
+    client.headers["X-MarketGraph-Developer"] = "true"
     created = client.post(
         "/api/v1/developer/edges",
         json={
@@ -539,7 +540,7 @@ def test_event_payload_identity_must_match_canonical_identity():
 
 
 def test_pagination_cannot_be_used_as_arbitrary_historical_date_api():
-    client = TestClient(create_app(Repo(), Broker(), object()))
+    client = TestClient(create_app(Repo(), Broker(), object()), headers={"X-Internal-Service-Key": "test-internal-key"})
     stale = int(datetime.now(UTC).timestamp()) - settings.pagination_snapshot_max_age_seconds - 1
     assert client.get(f"/api/v1/stocks/STOCK0/context?as_of_ts={stale}").status_code == 422
 

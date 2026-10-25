@@ -27,7 +27,7 @@ def test_registration_api_returns_accepted_without_fetching():
     repo = AsyncMock()
     repo.create_job.return_value = {"job_id": str(uuid4()), "state": "pending"}
     app = create_app(repo, AsyncMock())
-    with TestClient(app) as client:
+    with TestClient(app, headers={"X-Internal-Service-Key": "test-internal-key"}) as client:
         response = client.post("/api/v1/stocks", json={"query": "Reliance"})
     assert response.status_code == 202
     assert response.json()["state"] == "pending"
@@ -39,6 +39,7 @@ def test_data_service_exposes_stock_and_market_read_routes():
     openapi = create_app(AsyncMock(), AsyncMock()).openapi()
     paths = openapi["paths"]
     assert {
+        "/ready",
         "/api/v1/stocks/{ticker}",
         "/api/v1/stocks/{ticker}/shareholding",
         "/api/v1/stocks/{ticker}/candles",
@@ -61,7 +62,7 @@ def test_job_status_includes_graph_failures():
     repo.get_job.return_value = {"job_id": job_id, "state": "graph_processing", "ticker": "TCS"}
     redis = AsyncMock()
     redis.hgetall.return_value = {"state": "failed", "error": "LLM disabled"}
-    with TestClient(create_app(repo, redis)) as client:
+    with TestClient(create_app(repo, redis), headers={"X-Internal-Service-Key": "test-internal-key"}) as client:
         response = client.get("/api/v1/jobs/" + job_id)
     assert response.json()["state"] == "failed"
     assert response.json()["error"] == "LLM disabled"
@@ -70,13 +71,13 @@ def test_job_status_includes_graph_failures():
 def test_invalid_window_rejected_and_missing_stock_404():
     repo = AsyncMock()
     repo.get_entity.return_value = None
-    with TestClient(create_app(repo, AsyncMock())) as client:
+    with TestClient(create_app(repo, AsyncMock()), headers={"X-Internal-Service-Key": "test-internal-key"}) as client:
         assert client.get("/api/v1/stocks/TCS/financials?window=ALL").status_code == 422
         assert client.get("/api/v1/stocks/TCS/financials?window=LAST_1Y").status_code == 404
 
 
 def test_entity_api_rejects_unresolved_stock_and_numeric_macros():
-    with TestClient(create_app(AsyncMock(), AsyncMock())) as client:
+    with TestClient(create_app(AsyncMock(), AsyncMock()), headers={"X-Internal-Service-Key": "test-internal-key"}) as client:
         assert (
             client.post("/api/v1/entities/Stock", json={"id": "FAKE", "name": "Fake"}).status_code
             == 422
@@ -94,7 +95,7 @@ def test_manual_news_is_staged_then_enqueued_for_graph_inference():
     repo = AsyncMock()
     repo.get_entity.return_value = {"ticker": "TCS"}
     repo.commit_news.return_value = 1
-    with TestClient(create_app(repo, AsyncMock())) as client:
+    with TestClient(create_app(repo, AsyncMock()), headers={"X-Internal-Service-Key": "test-internal-key"}) as client:
         response = client.post(
             "/api/v1/manual/news",
             json={
@@ -118,7 +119,7 @@ def test_manual_news_is_staged_then_enqueued_for_graph_inference():
 def test_manual_news_rejects_unknown_or_unpaired_ticker_sentiment():
     repo = AsyncMock()
     repo.get_entity.return_value = None
-    with TestClient(create_app(repo, AsyncMock())) as client:
+    with TestClient(create_app(repo, AsyncMock()), headers={"X-Internal-Service-Key": "test-internal-key"}) as client:
         response = client.post(
             "/api/v1/manual/news",
             json={

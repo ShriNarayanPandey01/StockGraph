@@ -1,16 +1,18 @@
 # API reference
 
-This document describes the REST APIs implemented by the two independently
-deployable services. It is a companion to the generated OpenAPI documentation:
+This document describes the Data, Graph and Platform REST APIs. Current account
+and entitlement behavior is defined in [Phase 2 operations](PHASE2_PLATFORM.md). It is a companion to the generated OpenAPI documentation:
 
 | Service | Base URL | Interactive documentation | OpenAPI JSON |
 |---|---|---|---|
 | StockGraph (graph context) | `http://localhost:8000` | `/docs` | `/openapi.json` |
 | Upstox Data Service (registration and market data) | `http://localhost:8001` | `/docs` | `/openapi.json` |
+| Platform (accounts and user workflows) | `http://localhost:8002` | `/docs` | `/openapi.json` |
 
 All timestamps are ISO 8601 UTC unless a field is explicitly described as an
 epoch timestamp. Tickers are normalized to uppercase. These are internal/development
-APIs; add authentication and network controls before exposing either service.
+APIs. Data/Graph domain requests require `X-Internal-Service-Key` matching
+`MARKETGRAPH_INTERNAL_SERVICE_KEY`; user-facing requests authenticate to Platform.
 
 ## Typical registration flow
 
@@ -184,7 +186,7 @@ A stock that has not been projected returns `404`. An expired or future
 
 ### Public market-graph preview
 
-`GET /api/v1/public/market-graph` returns one small, frontend-ready market
+`GET /api/v1/public/market-graph` returns one small, client-ready market
 graph with no query parameters. It is not a graph browser or stock dossier.
 The service selects up to 15 recently active, connected stocks from a rolling
 30-day window, up to 10 linked Commodity/MacroFactor/Sector nodes, up to 15
@@ -590,27 +592,57 @@ parameters or unsupported combinations, `502` for invalid upstream responses,
 and `503` for unavailable dependencies, authorization/entitlement problems, or
 temporary provider failures.
 
-## MarketGraph Platform — free Phase 1
+## MarketGraph Platform
 
 Platform API: `http://localhost:8002/docs`. Exact models are available from its
-`/openapi.json`. See [setup and operations](PHASE1_PLATFORM.md). Pine Labs and
-RBAC are Phase 2; there are no stock/chat/alert plan quotas in Phase 1.
+`/openapi.json`. See [current account and plan operations](PHASE2_PLATFORM.md).
+Free/Pro controls apply; the developer assigns plans manually. Billing is disabled and a future payment provider is undecided.
 
 Application endpoints require `Authorization: Bearer <opaque-token>`. Tokens are
-operator-provisioned, hashed at rest and revocable; there is no default token.
-Ownership checks remain active. Operational request limits return `429`.
+issued by verified email/password login or retained operator provisioning,
+hashed at rest and revocable. Developer permissions override ownership and
+per-user limits; ordinary operational limits return `429`.
+
+### Account lifecycle and administration
+
+| Method | Endpoint | Input / behavior |
+|---|---|---|
+| POST | `/api/v1/auth/signup` | `{name,email,password}`; creates a Free User and sends verification code |
+| POST | `/api/v1/auth/login` | `{email,password}`; returns an expiring opaque bearer session |
+| POST | `/api/v1/auth/logout` | Revoke the authenticated bearer session |
+| POST | `/api/v1/auth/verify-email` | `{email,code,purpose}`; purpose is `verify` or `attach` |
+| POST | `/api/v1/auth/resend-verification` | `{email}`; rate-limited code resend |
+| POST | `/api/v1/auth/forgot-password` | `{email}`; generic recovery response |
+| POST | `/api/v1/auth/reset-password` | `{email,code,password}` |
+| POST | `/api/v1/auth/change-password` | Authenticated `{current_password,password}` |
+| POST | `/api/v1/me/credentials` | Authenticated legacy account `{email,password}`, then verify with purpose `attach` |
+| GET / PUT | `/api/v1/me/active-stocks` | Read/replace selected canonical tickers |
+| PUT / GET / DELETE | `/api/v1/me/broker-connections/upstox` | Save token, read status or disconnect; no token is returned |
+| GET | `/api/v1/admin/users` | Developer-only paginated account list |
+| GET / PATCH | `/api/v1/admin/users/{user_id}` | Developer-only account detail/update |
+| POST | `/api/v1/admin/users/{user_id}/revoke-sessions` | Developer-only session revocation |
+
+Passwords set through public account APIs require at least 12 characters. Account
+updates permit `name`, `roles`, `professional_verified`, `plan`, `plan_expires_at`
+and `disabled`. Ordinary roles are `USER`, `PROFESSIONAL`, `REVIEWER`; plans are
+`FREE` or `PRO`. Plan expiry is an aware future timestamp or null for no expiry.
+The developer status cannot be selected by public or administrative payloads.
+Mail-dependent operations require configured SMTP. Developer environment
+credentials are changed through `.env`, not ordinary password-reset APIs.
+
+### Application workflows
 
 | Method | Endpoint | Behavior |
 |---|---|---|
-| GET | `/api/v1/me`, `/api/v1/access-policy`, `/api/v1/me/usage` | Identity, free access policy and measured usage |
+| GET | `/api/v1/me`, `/api/v1/access-policy`, `/api/v1/me/usage` | Identity, effective permissions/plan limits and measured usage |
 | POST / GET | `/api/v1/contributions` | Create owned draft / list own contributions |
 | GET | `/api/v1/contributions/{id}` | Owned draft or published version |
 | POST | `/api/v1/contributions/{id}/versions` | Create correction/version |
 | POST | `/api/v1/contributions/{id}/submit` | Freeze for review |
 | GET | `/api/v1/review-queue` | Submitted versions for independent review |
-| POST | `/api/v1/contributions/{id}/review` | Approve/reject; self-review prohibited |
+| POST | `/api/v1/contributions/{id}/review` | Assigned-reviewer approval/rejection; developer self-review permitted |
 | POST | `/api/v1/contributions/{id}/retract` | Preserve history and withdraw evidence |
-| GET | `/api/v1/stocks/{ticker}/professional-evidence` | SQL-authoritative reviewed evidence; free to all users |
+| GET | `/api/v1/stocks/{ticker}/professional-evidence` | SQL-authoritative reviewed evidence; Pro/developer access |
 | GET | `/api/v1/stocks/{ticker}/connections` | Same-origin proxy for existing Graph context |
 | POST / GET | `/api/v1/watchlists` | Create/list owned selections |
 | PUT / DELETE | `/api/v1/watchlists/{id}` | Replace/delete; deleting cancels monitor work |
@@ -630,11 +662,13 @@ The contribution input contains `ticker`, `title`, `body`, `direction`
 `disclosures`, and `evidence` entries with `url`, `title`, `locator` and optional
 `document_version_id`. Document references must belong to the same stock.
 
-Approval requires a verified professional author and a different authenticated
-reviewer. Draft versions stay author-owned. Corrections create immutable versions;
+Ordinary approval requires a verified professional author and an assigned
+independent reviewer. Developer self-approval and record administration are audited. Corrections create immutable versions;
 timestamps distinguish source event, submission, publication and known-at time.
 Professional priority is configurable weighting, not an unconditional override.
-Future `PRO` classification is stored without access enforcement.
+Professional intelligence is Pro-restricted; filtering also applies to saved
+results, agent context and caches. Free users select ten active stocks and
+receive ten newly deduplicated alerts per IST calendar month.
 
 ### External-agent integration
 
@@ -661,7 +695,7 @@ alerts. Alert event/material identities must match supplied evidence. Leases,
 stock scopes, evidence eligibility and operational tool budgets are enforced.
 Reported tokens are telemetry, not audited provider charges. There is no order tool.
 
-### Graph, documents and connections page
+### Graph, documents and stock connections
 
 Graph context adds `professional_evidence`, `evidence_policy`, professional nodes
 and edges, and a professional pagination section. It preserves existing fields.
@@ -679,8 +713,7 @@ MCP tools: `get_stock_graph_context`, `get_professional_evidence`,
 These stdio tools expose shared market evidence. Private user research uses the
 authenticated leased-agent API.
 
-Open `/connections` on the Platform API for the Stock Connections Explorer.
-It displays stocks, events, commodities, sectors, macro factors and professional
-views using the existing graph contract, preserving `as_of_ts` across pages.
-Tokens remain in the page only. Empty, partial, pending and failed states are
-visible. Confidence is extraction confidence, not price-move probability.
+`GET /api/v1/stocks/{ticker}/connections?window=LAST_6M&offset=0&limit=100`
+returns the authenticated stock-connection graph data. Preserve `as_of_ts` from
+the response when requesting later pages. Confidence is extraction confidence,
+not price-move probability.
