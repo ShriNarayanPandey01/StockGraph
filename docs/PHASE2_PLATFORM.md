@@ -130,6 +130,28 @@ TLS can be configured with SSL instead. Do not enable both transport modes.
 Developer/SMTP/broker-vault secrets are passed only to `platform-api`, not its
 worker. Existing `UPSTOX_ANALYTICS_TOKEN` / `UPSTOX_AUTHTOKEN` compatibility remains.
 
+### Brevo SMTP: authorize the sending server's IP
+
+When Brevo's blocking of unknown IP addresses is enabled for SMTP keys, add the
+**public outbound IP address of every server running `platform-api`** under
+Brevo **Security > Authorized IPs** before sending email. This is the API server's
+internet-facing egress address, rather than the website user's IP, a Docker
+container's private address, or `127.0.0.1`. Local development and deployed API
+servers can use different outbound IPs; authorize each environment's addresses.
+Update the list if an address changes, including after an ISP change or a
+deployment that changes the server's egress addresses.
+
+To check the local container's current public outbound IP without sending email:
+
+```powershell
+docker compose exec -T platform-api python -c "import urllib.request; print(urllib.request.urlopen('https://api.ipify.org', timeout=10).read().decode())"
+```
+
+Removing the sending server's IP from the authorized list while blocking is
+enabled prevents SMTP email delivery, including verification and recovery codes.
+Brevo can report `525 5.7.1 Unauthorized IP address`; valid SMTP credentials alone
+do not resolve this error. See [Brevo's API and SMTP IP authorization guide](https://help.brevo.com/hc/en-us/articles/5740111683858-Authorize-and-block-IP-addresses-for-API-and-SMTP-security).
+
 Back up Platform data before numbered migrations and coordinate application
 rollout so internal clients and servers receive matching keys. Never rewrite an
 applied migration, recreate database containers to apply application changes, or

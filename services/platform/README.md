@@ -86,6 +86,11 @@ Developer/SMTP/vault secrets belong only to the API process. The separate worker
 owns outbox relay and scheduling, not agent execution. The agents package is a
 health-only scaffold and existing external agents still use leased Platform REST.
 
+For Brevo SMTP with unknown-IP blocking enabled, authorize the public outbound
+IP of each `platform-api` server in **Security > Authorized IPs**. Removing that
+IP blocks verification/recovery email even when SMTP credentials are valid.
+See the [Brevo setup and IP check](../../docs/PHASE2_PLATFORM.md#brevo-smtp-authorize-the-sending-servers-ip).
+
 ## External-agent evidence contract
 
 An operator configures `PLATFORM_AGENT_SERVICE_KEY`. Machine endpoints require
