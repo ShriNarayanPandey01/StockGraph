@@ -11,6 +11,7 @@ import httpx
 
 from upstox_service.adapters.providers.upstox.client import ProviderError, UpstoxClient
 from upstox_service.adapters.providers.upstox.company import UpstoxCompanyProvider
+from upstox_service.domain.equity import is_company_equity
 
 _BOD_URLS = {
     "NSE": "https://assets.upstox.com/market-quote/instruments/exchange/NSE.json.gz",
@@ -52,16 +53,9 @@ class UpstoxStockDataProvider:
                 raise ProviderError(f"{exchange} equity universe unavailable", retryable=True) from exc
             if not isinstance(rows, list):
                 raise ProviderError(f"{exchange} equity universe malformed")
-            # NSE labels cash equities ``EQ``. BSE supplies its equity group
-            # classification (A/B/X/...) instead, while retaining ``BSE_EQ``
-            # as the authoritative segment. Applying the NSE type predicate to
-            # BSE would silently discard the whole BSE equity universe.
             exchange_rows = [
                 row for row in rows
-                if isinstance(row, dict)
-                and row.get("segment") == f"{exchange}_EQ"
-                and (exchange == "BSE" or row.get("instrument_type") == "EQ")
-                and all(row.get(key) for key in ("trading_symbol", "isin", "instrument_key"))
+                if isinstance(row, dict) and is_company_equity(row, exchange)
             ]
             if not exchange_rows:
                 raise ProviderError(f"{exchange} equity universe has no valid stocks")

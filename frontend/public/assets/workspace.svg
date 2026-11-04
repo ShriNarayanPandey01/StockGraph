@@ -1,0 +1,951 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1440" height="1020" viewBox="0 0 1440 1020"><title>TRACK — stock knowledge graph wireframe</title><desc>Sample data. Stock graph with related sectors, stocks, news, events, holidays, evidence panel, timeline, and motion specifications.</desc>
+<rect x="0" y="0" width="1440" height="1020" rx="0" fill="#101315" stroke="#101315"/>
+<rect x="0" y="74" width="202" height="946" rx="0" fill="#131719" stroke="#303638"/>
+<text x="26" y="46" font-family="Arial, sans-serif" font-size="30" font-weight="400" fill="#c5f477">✳</text>
+<text x="62" y="44" font-family="Arial, sans-serif" font-size="26" font-weight="700" fill="#edf0e8">TRACK</text>
+<text x="158" y="43" font-family="Arial, sans-serif" font-size="10" font-weight="400" fill="#a5aea8">/ LAB</text>
+<text x="252" y="43" font-family="Arial, sans-serif" font-size="13" font-weight="400" fill="#edf0e8">Explore</text>
+<text x="345" y="43" font-family="Arial, sans-serif" font-size="13" font-weight="400" fill="#a5aea8">Watchlist</text>
+<text x="452" y="43" font-family="Arial, sans-serif" font-size="13" font-weight="400" fill="#a5aea8">Calendar</text>
+<text x="553" y="43" font-family="Arial, sans-serif" font-size="13" font-weight="400" fill="#a5aea8">Pricing</text>
+<rect x="1245" y="24" width="164" height="27" rx="5" fill="#1c2519" stroke="#455438"/>
+<text x="1256" y="42" font-family="Arial, sans-serif" font-size="10" font-weight="400" fill="#c5f477">WIREFRAME · DEMO</text>
+<path d="M0 74L1440 74" fill="none" stroke="#303638" stroke-width="1.3"/>
+<text x="24" y="112" font-family="Arial, sans-serif" font-size="10" font-weight="700" fill="#a5aea8">WORKSPACE</text>
+<rect x="16" y="132" width="170" height="41" rx="7" fill="#232b20" stroke="#232b20"/>
+<text x="30" y="158" font-family="Arial, sans-serif" font-size="12" font-weight="400" fill="#c5f477">◉  Knowledge graph</text>
+<text x="30" y="202" font-family="Arial, sans-serif" font-size="12" font-weight="400" fill="#a5aea8">▦  Event calendar</text>
+<text x="30" y="247" font-family="Arial, sans-serif" font-size="12" font-weight="400" fill="#a5aea8">◇  Price alerts</text>
+<text x="24" y="306" font-family="Arial, sans-serif" font-size="10" font-weight="700" fill="#a5aea8">YOUR WATCHLIST</text>
+<rect x="16" y="327" width="170" height="62" rx="7" fill="#202821" stroke="#202821"/>
+<text x="28" y="351" font-family="Arial, sans-serif" font-size="12" font-weight="700" fill="#edf0e8">RELIANCE</text>
+<text x="141" y="351" font-family="Arial, sans-serif" font-size="10" font-weight="400" fill="#c5f477">+1.24%</text>
+<text x="28" y="371" font-family="Arial, sans-serif" font-size="10" font-weight="400" fill="#a5aea8">Energy · NSE</text>
+<text x="28" y="420" font-family="Arial, sans-serif" font-size="12" font-weight="700" fill="#edf0e8">TCS</text>
+<text x="141" y="420" font-family="Arial, sans-serif" font-size="10" font-weight="400" fill="#c5f477">+0.68%</text>
+<text x="28" y="440" font-family="Arial, sans-serif" font-size="10" font-weight="400" fill="#a5aea8">IT services · NSE</text>
+<path d="M25 456L178 456" fill="none" stroke="#303638" stroke-width="1.3"/>
+<text x="28" y="487" font-family="Arial, sans-serif" font-size="12" font-weight="700" fill="#edf0e8">HDFCBANK</text>
+<text x="141" y="487" font-family="Arial, sans-serif" font-size="10" font-weight="400" fill="#e0b7a1">−0.42%</text>
+<text x="28" y="507" font-family="Arial, sans-serif" font-size="10" font-weight="400" fill="#a5aea8">Banking · NSE</text>
+<path d="M25 523L178 523" fill="none" stroke="#303638" stroke-width="1.3"/>
+<text x="26" y="916" font-family="Arial, sans-serif" font-size="12" font-weight="400" fill="#edf0e8">Follow the connections.</text>
+<text x="26" y="939" font-family="Arial, sans-serif" font-size="11" font-weight="400" fill="#a5aea8">Explore the context</text>
+<text x="26" y="958" font-family="Arial, sans-serif" font-size="11" font-weight="400" fill="#a5aea8">behind a stock’s price.</text>
+<text x="232" y="111" font-family="Arial, sans-serif" font-size="10" font-weight="700" fill="#a5aea8">MARKET INTELLIGENCE / INDIA</text>
+<text x="232" y="148" font-family="Arial, sans-serif" font-size="30" font-weight="400" fill="#edf0e8">Every move has context.</text>
+<rect x="1125" y="106" width="284" height="40" rx="7" fill="#181c1f" stroke="#303638"/>
+<text x="1141" y="131" font-family="Arial, sans-serif" font-size="12" font-weight="400" fill="#a5aea8">Search stocks…</text>
+<text x="232" y="199" font-family="Arial, sans-serif" font-size="20" font-weight="400" fill="#edf0e8">Reliance Industries</text>
+<text x="232" y="222" font-family="Arial, sans-serif" font-size="11" font-weight="400" fill="#a5aea8">RELIANCE · NSE · Illustrative data</text>
+<text x="1243" y="196" font-family="Arial, sans-serif" font-size="25" font-weight="400" fill="#edf0e8">₹1,420.50</text>
+<text x="1201" y="221" font-family="Arial, sans-serif" font-size="11" font-weight="400" fill="#c5f477">+17.40 (1.24%) · Sample price</text>
+<rect x="232" y="248" width="1177" height="463" rx="10" fill="#101315" stroke="#303638"/>
+<rect x="1121" y="248" width="288" height="463" rx="10" fill="#181c1f" stroke="#303638"/>
+<text x="251" y="277" font-family="Arial, sans-serif" font-size="13" font-weight="400" fill="#edf0e8">Knowledge graph</text>
+<rect x="882" y="261" width="39" height="24" rx="4" fill="#2b3622" stroke="#52663b"/>
+<text x="892" y="277" font-family="Arial, sans-serif" font-size="10" font-weight="400" fill="#c5f477">All</text>
+<rect x="927" y="261" width="56" height="24" rx="4" fill="#101315" stroke="#303638"/>
+<text x="937" y="277" font-family="Arial, sans-serif" font-size="10" font-weight="400" fill="#a5aea8">Events</text>
+<rect x="989" y="261" width="54" height="24" rx="4" fill="#101315" stroke="#303638"/>
+<text x="999" y="277" font-family="Arial, sans-serif" font-size="10" font-weight="400" fill="#a5aea8">Sector</text>
+<rect x="1049" y="261" width="54" height="24" rx="4" fill="#101315" stroke="#303638"/>
+<text x="1059" y="277" font-family="Arial, sans-serif" font-size="10" font-weight="400" fill="#a5aea8">Stocks</text>
+<circle cx="250" cy="310" r="0.65" fill="#303930"/>
+<circle cx="270" cy="310" r="0.65" fill="#303930"/>
+<circle cx="290" cy="310" r="0.65" fill="#303930"/>
+<circle cx="310" cy="310" r="0.65" fill="#303930"/>
+<circle cx="330" cy="310" r="0.65" fill="#303930"/>
+<circle cx="350" cy="310" r="0.65" fill="#303930"/>
+<circle cx="370" cy="310" r="0.65" fill="#303930"/>
+<circle cx="390" cy="310" r="0.65" fill="#303930"/>
+<circle cx="410" cy="310" r="0.65" fill="#303930"/>
+<circle cx="430" cy="310" r="0.65" fill="#303930"/>
+<circle cx="450" cy="310" r="0.65" fill="#303930"/>
+<circle cx="470" cy="310" r="0.65" fill="#303930"/>
+<circle cx="490" cy="310" r="0.65" fill="#303930"/>
+<circle cx="510" cy="310" r="0.65" fill="#303930"/>
+<circle cx="530" cy="310" r="0.65" fill="#303930"/>
+<circle cx="550" cy="310" r="0.65" fill="#303930"/>
+<circle cx="570" cy="310" r="0.65" fill="#303930"/>
+<circle cx="590" cy="310" r="0.65" fill="#303930"/>
+<circle cx="610" cy="310" r="0.65" fill="#303930"/>
+<circle cx="630" cy="310" r="0.65" fill="#303930"/>
+<circle cx="650" cy="310" r="0.65" fill="#303930"/>
+<circle cx="670" cy="310" r="0.65" fill="#303930"/>
+<circle cx="690" cy="310" r="0.65" fill="#303930"/>
+<circle cx="710" cy="310" r="0.65" fill="#303930"/>
+<circle cx="730" cy="310" r="0.65" fill="#303930"/>
+<circle cx="750" cy="310" r="0.65" fill="#303930"/>
+<circle cx="770" cy="310" r="0.65" fill="#303930"/>
+<circle cx="790" cy="310" r="0.65" fill="#303930"/>
+<circle cx="810" cy="310" r="0.65" fill="#303930"/>
+<circle cx="830" cy="310" r="0.65" fill="#303930"/>
+<circle cx="850" cy="310" r="0.65" fill="#303930"/>
+<circle cx="870" cy="310" r="0.65" fill="#303930"/>
+<circle cx="890" cy="310" r="0.65" fill="#303930"/>
+<circle cx="910" cy="310" r="0.65" fill="#303930"/>
+<circle cx="930" cy="310" r="0.65" fill="#303930"/>
+<circle cx="950" cy="310" r="0.65" fill="#303930"/>
+<circle cx="970" cy="310" r="0.65" fill="#303930"/>
+<circle cx="990" cy="310" r="0.65" fill="#303930"/>
+<circle cx="1010" cy="310" r="0.65" fill="#303930"/>
+<circle cx="1030" cy="310" r="0.65" fill="#303930"/>
+<circle cx="1050" cy="310" r="0.65" fill="#303930"/>
+<circle cx="1070" cy="310" r="0.65" fill="#303930"/>
+<circle cx="1090" cy="310" r="0.65" fill="#303930"/>
+<circle cx="250" cy="330" r="0.65" fill="#303930"/>
+<circle cx="270" cy="330" r="0.65" fill="#303930"/>
+<circle cx="290" cy="330" r="0.65" fill="#303930"/>
+<circle cx="310" cy="330" r="0.65" fill="#303930"/>
+<circle cx="330" cy="330" r="0.65" fill="#303930"/>
+<circle cx="350" cy="330" r="0.65" fill="#303930"/>
+<circle cx="370" cy="330" r="0.65" fill="#303930"/>
+<circle cx="390" cy="330" r="0.65" fill="#303930"/>
+<circle cx="410" cy="330" r="0.65" fill="#303930"/>
+<circle cx="430" cy="330" r="0.65" fill="#303930"/>
+<circle cx="450" cy="330" r="0.65" fill="#303930"/>
+<circle cx="470" cy="330" r="0.65" fill="#303930"/>
+<circle cx="490" cy="330" r="0.65" fill="#303930"/>
+<circle cx="510" cy="330" r="0.65" fill="#303930"/>
+<circle cx="530" cy="330" r="0.65" fill="#303930"/>
+<circle cx="550" cy="330" r="0.65" fill="#303930"/>
+<circle cx="570" cy="330" r="0.65" fill="#303930"/>
+<circle cx="590" cy="330" r="0.65" fill="#303930"/>
+<circle cx="610" cy="330" r="0.65" fill="#303930"/>
+<circle cx="630" cy="330" r="0.65" fill="#303930"/>
+<circle cx="650" cy="330" r="0.65" fill="#303930"/>
+<circle cx="670" cy="330" r="0.65" fill="#303930"/>
+<circle cx="690" cy="330" r="0.65" fill="#303930"/>
+<circle cx="710" cy="330" r="0.65" fill="#303930"/>
+<circle cx="730" cy="330" r="0.65" fill="#303930"/>
+<circle cx="750" cy="330" r="0.65" fill="#303930"/>
+<circle cx="770" cy="330" r="0.65" fill="#303930"/>
+<circle cx="790" cy="330" r="0.65" fill="#303930"/>
+<circle cx="810" cy="330" r="0.65" fill="#303930"/>
+<circle cx="830" cy="330" r="0.65" fill="#303930"/>
+<circle cx="850" cy="330" r="0.65" fill="#303930"/>
+<circle cx="870" cy="330" r="0.65" fill="#303930"/>
+<circle cx="890" cy="330" r="0.65" fill="#303930"/>
+<circle cx="910" cy="330" r="0.65" fill="#303930"/>
+<circle cx="930" cy="330" r="0.65" fill="#303930"/>
+<circle cx="950" cy="330" r="0.65" fill="#303930"/>
+<circle cx="970" cy="330" r="0.65" fill="#303930"/>
+<circle cx="990" cy="330" r="0.65" fill="#303930"/>
+<circle cx="1010" cy="330" r="0.65" fill="#303930"/>
+<circle cx="1030" cy="330" r="0.65" fill="#303930"/>
+<circle cx="1050" cy="330" r="0.65" fill="#303930"/>
+<circle cx="1070" cy="330" r="0.65" fill="#303930"/>
+<circle cx="1090" cy="330" r="0.65" fill="#303930"/>
+<circle cx="250" cy="350" r="0.65" fill="#303930"/>
+<circle cx="270" cy="350" r="0.65" fill="#303930"/>
+<circle cx="290" cy="350" r="0.65" fill="#303930"/>
+<circle cx="310" cy="350" r="0.65" fill="#303930"/>
+<circle cx="330" cy="350" r="0.65" fill="#303930"/>
+<circle cx="350" cy="350" r="0.65" fill="#303930"/>
+<circle cx="370" cy="350" r="0.65" fill="#303930"/>
+<circle cx="390" cy="350" r="0.65" fill="#303930"/>
+<circle cx="410" cy="350" r="0.65" fill="#303930"/>
+<circle cx="430" cy="350" r="0.65" fill="#303930"/>
+<circle cx="450" cy="350" r="0.65" fill="#303930"/>
+<circle cx="470" cy="350" r="0.65" fill="#303930"/>
+<circle cx="490" cy="350" r="0.65" fill="#303930"/>
+<circle cx="510" cy="350" r="0.65" fill="#303930"/>
+<circle cx="530" cy="350" r="0.65" fill="#303930"/>
+<circle cx="550" cy="350" r="0.65" fill="#303930"/>
+<circle cx="570" cy="350" r="0.65" fill="#303930"/>
+<circle cx="590" cy="350" r="0.65" fill="#303930"/>
+<circle cx="610" cy="350" r="0.65" fill="#303930"/>
+<circle cx="630" cy="350" r="0.65" fill="#303930"/>
+<circle cx="650" cy="350" r="0.65" fill="#303930"/>
+<circle cx="670" cy="350" r="0.65" fill="#303930"/>
+<circle cx="690" cy="350" r="0.65" fill="#303930"/>
+<circle cx="710" cy="350" r="0.65" fill="#303930"/>
+<circle cx="730" cy="350" r="0.65" fill="#303930"/>
+<circle cx="750" cy="350" r="0.65" fill="#303930"/>
+<circle cx="770" cy="350" r="0.65" fill="#303930"/>
+<circle cx="790" cy="350" r="0.65" fill="#303930"/>
+<circle cx="810" cy="350" r="0.65" fill="#303930"/>
+<circle cx="830" cy="350" r="0.65" fill="#303930"/>
+<circle cx="850" cy="350" r="0.65" fill="#303930"/>
+<circle cx="870" cy="350" r="0.65" fill="#303930"/>
+<circle cx="890" cy="350" r="0.65" fill="#303930"/>
+<circle cx="910" cy="350" r="0.65" fill="#303930"/>
+<circle cx="930" cy="350" r="0.65" fill="#303930"/>
+<circle cx="950" cy="350" r="0.65" fill="#303930"/>
+<circle cx="970" cy="350" r="0.65" fill="#303930"/>
+<circle cx="990" cy="350" r="0.65" fill="#303930"/>
+<circle cx="1010" cy="350" r="0.65" fill="#303930"/>
+<circle cx="1030" cy="350" r="0.65" fill="#303930"/>
+<circle cx="1050" cy="350" r="0.65" fill="#303930"/>
+<circle cx="1070" cy="350" r="0.65" fill="#303930"/>
+<circle cx="1090" cy="350" r="0.65" fill="#303930"/>
+<circle cx="250" cy="370" r="0.65" fill="#303930"/>
+<circle cx="270" cy="370" r="0.65" fill="#303930"/>
+<circle cx="290" cy="370" r="0.65" fill="#303930"/>
+<circle cx="310" cy="370" r="0.65" fill="#303930"/>
+<circle cx="330" cy="370" r="0.65" fill="#303930"/>
+<circle cx="350" cy="370" r="0.65" fill="#303930"/>
+<circle cx="370" cy="370" r="0.65" fill="#303930"/>
+<circle cx="390" cy="370" r="0.65" fill="#303930"/>
+<circle cx="410" cy="370" r="0.65" fill="#303930"/>
+<circle cx="430" cy="370" r="0.65" fill="#303930"/>
+<circle cx="450" cy="370" r="0.65" fill="#303930"/>
+<circle cx="470" cy="370" r="0.65" fill="#303930"/>
+<circle cx="490" cy="370" r="0.65" fill="#303930"/>
+<circle cx="510" cy="370" r="0.65" fill="#303930"/>
+<circle cx="530" cy="370" r="0.65" fill="#303930"/>
+<circle cx="550" cy="370" r="0.65" fill="#303930"/>
+<circle cx="570" cy="370" r="0.65" fill="#303930"/>
+<circle cx="590" cy="370" r="0.65" fill="#303930"/>
+<circle cx="610" cy="370" r="0.65" fill="#303930"/>
+<circle cx="630" cy="370" r="0.65" fill="#303930"/>
+<circle cx="650" cy="370" r="0.65" fill="#303930"/>
+<circle cx="670" cy="370" r="0.65" fill="#303930"/>
+<circle cx="690" cy="370" r="0.65" fill="#303930"/>
+<circle cx="710" cy="370" r="0.65" fill="#303930"/>
+<circle cx="730" cy="370" r="0.65" fill="#303930"/>
+<circle cx="750" cy="370" r="0.65" fill="#303930"/>
+<circle cx="770" cy="370" r="0.65" fill="#303930"/>
+<circle cx="790" cy="370" r="0.65" fill="#303930"/>
+<circle cx="810" cy="370" r="0.65" fill="#303930"/>
+<circle cx="830" cy="370" r="0.65" fill="#303930"/>
+<circle cx="850" cy="370" r="0.65" fill="#303930"/>
+<circle cx="870" cy="370" r="0.65" fill="#303930"/>
+<circle cx="890" cy="370" r="0.65" fill="#303930"/>
+<circle cx="910" cy="370" r="0.65" fill="#303930"/>
+<circle cx="930" cy="370" r="0.65" fill="#303930"/>
+<circle cx="950" cy="370" r="0.65" fill="#303930"/>
+<circle cx="970" cy="370" r="0.65" fill="#303930"/>
+<circle cx="990" cy="370" r="0.65" fill="#303930"/>
+<circle cx="1010" cy="370" r="0.65" fill="#303930"/>
+<circle cx="1030" cy="370" r="0.65" fill="#303930"/>
+<circle cx="1050" cy="370" r="0.65" fill="#303930"/>
+<circle cx="1070" cy="370" r="0.65" fill="#303930"/>
+<circle cx="1090" cy="370" r="0.65" fill="#303930"/>
+<circle cx="250" cy="390" r="0.65" fill="#303930"/>
+<circle cx="270" cy="390" r="0.65" fill="#303930"/>
+<circle cx="290" cy="390" r="0.65" fill="#303930"/>
+<circle cx="310" cy="390" r="0.65" fill="#303930"/>
+<circle cx="330" cy="390" r="0.65" fill="#303930"/>
+<circle cx="350" cy="390" r="0.65" fill="#303930"/>
+<circle cx="370" cy="390" r="0.65" fill="#303930"/>
+<circle cx="390" cy="390" r="0.65" fill="#303930"/>
+<circle cx="410" cy="390" r="0.65" fill="#303930"/>
+<circle cx="430" cy="390" r="0.65" fill="#303930"/>
+<circle cx="450" cy="390" r="0.65" fill="#303930"/>
+<circle cx="470" cy="390" r="0.65" fill="#303930"/>
+<circle cx="490" cy="390" r="0.65" fill="#303930"/>
+<circle cx="510" cy="390" r="0.65" fill="#303930"/>
+<circle cx="530" cy="390" r="0.65" fill="#303930"/>
+<circle cx="550" cy="390" r="0.65" fill="#303930"/>
+<circle cx="570" cy="390" r="0.65" fill="#303930"/>
+<circle cx="590" cy="390" r="0.65" fill="#303930"/>
+<circle cx="610" cy="390" r="0.65" fill="#303930"/>
+<circle cx="630" cy="390" r="0.65" fill="#303930"/>
+<circle cx="650" cy="390" r="0.65" fill="#303930"/>
+<circle cx="670" cy="390" r="0.65" fill="#303930"/>
+<circle cx="690" cy="390" r="0.65" fill="#303930"/>
+<circle cx="710" cy="390" r="0.65" fill="#303930"/>
+<circle cx="730" cy="390" r="0.65" fill="#303930"/>
+<circle cx="750" cy="390" r="0.65" fill="#303930"/>
+<circle cx="770" cy="390" r="0.65" fill="#303930"/>
+<circle cx="790" cy="390" r="0.65" fill="#303930"/>
+<circle cx="810" cy="390" r="0.65" fill="#303930"/>
+<circle cx="830" cy="390" r="0.65" fill="#303930"/>
+<circle cx="850" cy="390" r="0.65" fill="#303930"/>
+<circle cx="870" cy="390" r="0.65" fill="#303930"/>
+<circle cx="890" cy="390" r="0.65" fill="#303930"/>
+<circle cx="910" cy="390" r="0.65" fill="#303930"/>
+<circle cx="930" cy="390" r="0.65" fill="#303930"/>
+<circle cx="950" cy="390" r="0.65" fill="#303930"/>
+<circle cx="970" cy="390" r="0.65" fill="#303930"/>
+<circle cx="990" cy="390" r="0.65" fill="#303930"/>
+<circle cx="1010" cy="390" r="0.65" fill="#303930"/>
+<circle cx="1030" cy="390" r="0.65" fill="#303930"/>
+<circle cx="1050" cy="390" r="0.65" fill="#303930"/>
+<circle cx="1070" cy="390" r="0.65" fill="#303930"/>
+<circle cx="1090" cy="390" r="0.65" fill="#303930"/>
+<circle cx="250" cy="410" r="0.65" fill="#303930"/>
+<circle cx="270" cy="410" r="0.65" fill="#303930"/>
+<circle cx="290" cy="410" r="0.65" fill="#303930"/>
+<circle cx="310" cy="410" r="0.65" fill="#303930"/>
+<circle cx="330" cy="410" r="0.65" fill="#303930"/>
+<circle cx="350" cy="410" r="0.65" fill="#303930"/>
+<circle cx="370" cy="410" r="0.65" fill="#303930"/>
+<circle cx="390" cy="410" r="0.65" fill="#303930"/>
+<circle cx="410" cy="410" r="0.65" fill="#303930"/>
+<circle cx="430" cy="410" r="0.65" fill="#303930"/>
+<circle cx="450" cy="410" r="0.65" fill="#303930"/>
+<circle cx="470" cy="410" r="0.65" fill="#303930"/>
+<circle cx="490" cy="410" r="0.65" fill="#303930"/>
+<circle cx="510" cy="410" r="0.65" fill="#303930"/>
+<circle cx="530" cy="410" r="0.65" fill="#303930"/>
+<circle cx="550" cy="410" r="0.65" fill="#303930"/>
+<circle cx="570" cy="410" r="0.65" fill="#303930"/>
+<circle cx="590" cy="410" r="0.65" fill="#303930"/>
+<circle cx="610" cy="410" r="0.65" fill="#303930"/>
+<circle cx="630" cy="410" r="0.65" fill="#303930"/>
+<circle cx="650" cy="410" r="0.65" fill="#303930"/>
+<circle cx="670" cy="410" r="0.65" fill="#303930"/>
+<circle cx="690" cy="410" r="0.65" fill="#303930"/>
+<circle cx="710" cy="410" r="0.65" fill="#303930"/>
+<circle cx="730" cy="410" r="0.65" fill="#303930"/>
+<circle cx="750" cy="410" r="0.65" fill="#303930"/>
+<circle cx="770" cy="410" r="0.65" fill="#303930"/>
+<circle cx="790" cy="410" r="0.65" fill="#303930"/>
+<circle cx="810" cy="410" r="0.65" fill="#303930"/>
+<circle cx="830" cy="410" r="0.65" fill="#303930"/>
+<circle cx="850" cy="410" r="0.65" fill="#303930"/>
+<circle cx="870" cy="410" r="0.65" fill="#303930"/>
+<circle cx="890" cy="410" r="0.65" fill="#303930"/>
+<circle cx="910" cy="410" r="0.65" fill="#303930"/>
+<circle cx="930" cy="410" r="0.65" fill="#303930"/>
+<circle cx="950" cy="410" r="0.65" fill="#303930"/>
+<circle cx="970" cy="410" r="0.65" fill="#303930"/>
+<circle cx="990" cy="410" r="0.65" fill="#303930"/>
+<circle cx="1010" cy="410" r="0.65" fill="#303930"/>
+<circle cx="1030" cy="410" r="0.65" fill="#303930"/>
+<circle cx="1050" cy="410" r="0.65" fill="#303930"/>
+<circle cx="1070" cy="410" r="0.65" fill="#303930"/>
+<circle cx="1090" cy="410" r="0.65" fill="#303930"/>
+<circle cx="250" cy="430" r="0.65" fill="#303930"/>
+<circle cx="270" cy="430" r="0.65" fill="#303930"/>
+<circle cx="290" cy="430" r="0.65" fill="#303930"/>
+<circle cx="310" cy="430" r="0.65" fill="#303930"/>
+<circle cx="330" cy="430" r="0.65" fill="#303930"/>
+<circle cx="350" cy="430" r="0.65" fill="#303930"/>
+<circle cx="370" cy="430" r="0.65" fill="#303930"/>
+<circle cx="390" cy="430" r="0.65" fill="#303930"/>
+<circle cx="410" cy="430" r="0.65" fill="#303930"/>
+<circle cx="430" cy="430" r="0.65" fill="#303930"/>
+<circle cx="450" cy="430" r="0.65" fill="#303930"/>
+<circle cx="470" cy="430" r="0.65" fill="#303930"/>
+<circle cx="490" cy="430" r="0.65" fill="#303930"/>
+<circle cx="510" cy="430" r="0.65" fill="#303930"/>
+<circle cx="530" cy="430" r="0.65" fill="#303930"/>
+<circle cx="550" cy="430" r="0.65" fill="#303930"/>
+<circle cx="570" cy="430" r="0.65" fill="#303930"/>
+<circle cx="590" cy="430" r="0.65" fill="#303930"/>
+<circle cx="610" cy="430" r="0.65" fill="#303930"/>
+<circle cx="630" cy="430" r="0.65" fill="#303930"/>
+<circle cx="650" cy="430" r="0.65" fill="#303930"/>
+<circle cx="670" cy="430" r="0.65" fill="#303930"/>
+<circle cx="690" cy="430" r="0.65" fill="#303930"/>
+<circle cx="710" cy="430" r="0.65" fill="#303930"/>
+<circle cx="730" cy="430" r="0.65" fill="#303930"/>
+<circle cx="750" cy="430" r="0.65" fill="#303930"/>
+<circle cx="770" cy="430" r="0.65" fill="#303930"/>
+<circle cx="790" cy="430" r="0.65" fill="#303930"/>
+<circle cx="810" cy="430" r="0.65" fill="#303930"/>
+<circle cx="830" cy="430" r="0.65" fill="#303930"/>
+<circle cx="850" cy="430" r="0.65" fill="#303930"/>
+<circle cx="870" cy="430" r="0.65" fill="#303930"/>
+<circle cx="890" cy="430" r="0.65" fill="#303930"/>
+<circle cx="910" cy="430" r="0.65" fill="#303930"/>
+<circle cx="930" cy="430" r="0.65" fill="#303930"/>
+<circle cx="950" cy="430" r="0.65" fill="#303930"/>
+<circle cx="970" cy="430" r="0.65" fill="#303930"/>
+<circle cx="990" cy="430" r="0.65" fill="#303930"/>
+<circle cx="1010" cy="430" r="0.65" fill="#303930"/>
+<circle cx="1030" cy="430" r="0.65" fill="#303930"/>
+<circle cx="1050" cy="430" r="0.65" fill="#303930"/>
+<circle cx="1070" cy="430" r="0.65" fill="#303930"/>
+<circle cx="1090" cy="430" r="0.65" fill="#303930"/>
+<circle cx="250" cy="450" r="0.65" fill="#303930"/>
+<circle cx="270" cy="450" r="0.65" fill="#303930"/>
+<circle cx="290" cy="450" r="0.65" fill="#303930"/>
+<circle cx="310" cy="450" r="0.65" fill="#303930"/>
+<circle cx="330" cy="450" r="0.65" fill="#303930"/>
+<circle cx="350" cy="450" r="0.65" fill="#303930"/>
+<circle cx="370" cy="450" r="0.65" fill="#303930"/>
+<circle cx="390" cy="450" r="0.65" fill="#303930"/>
+<circle cx="410" cy="450" r="0.65" fill="#303930"/>
+<circle cx="430" cy="450" r="0.65" fill="#303930"/>
+<circle cx="450" cy="450" r="0.65" fill="#303930"/>
+<circle cx="470" cy="450" r="0.65" fill="#303930"/>
+<circle cx="490" cy="450" r="0.65" fill="#303930"/>
+<circle cx="510" cy="450" r="0.65" fill="#303930"/>
+<circle cx="530" cy="450" r="0.65" fill="#303930"/>
+<circle cx="550" cy="450" r="0.65" fill="#303930"/>
+<circle cx="570" cy="450" r="0.65" fill="#303930"/>
+<circle cx="590" cy="450" r="0.65" fill="#303930"/>
+<circle cx="610" cy="450" r="0.65" fill="#303930"/>
+<circle cx="630" cy="450" r="0.65" fill="#303930"/>
+<circle cx="650" cy="450" r="0.65" fill="#303930"/>
+<circle cx="670" cy="450" r="0.65" fill="#303930"/>
+<circle cx="690" cy="450" r="0.65" fill="#303930"/>
+<circle cx="710" cy="450" r="0.65" fill="#303930"/>
+<circle cx="730" cy="450" r="0.65" fill="#303930"/>
+<circle cx="750" cy="450" r="0.65" fill="#303930"/>
+<circle cx="770" cy="450" r="0.65" fill="#303930"/>
+<circle cx="790" cy="450" r="0.65" fill="#303930"/>
+<circle cx="810" cy="450" r="0.65" fill="#303930"/>
+<circle cx="830" cy="450" r="0.65" fill="#303930"/>
+<circle cx="850" cy="450" r="0.65" fill="#303930"/>
+<circle cx="870" cy="450" r="0.65" fill="#303930"/>
+<circle cx="890" cy="450" r="0.65" fill="#303930"/>
+<circle cx="910" cy="450" r="0.65" fill="#303930"/>
+<circle cx="930" cy="450" r="0.65" fill="#303930"/>
+<circle cx="950" cy="450" r="0.65" fill="#303930"/>
+<circle cx="970" cy="450" r="0.65" fill="#303930"/>
+<circle cx="990" cy="450" r="0.65" fill="#303930"/>
+<circle cx="1010" cy="450" r="0.65" fill="#303930"/>
+<circle cx="1030" cy="450" r="0.65" fill="#303930"/>
+<circle cx="1050" cy="450" r="0.65" fill="#303930"/>
+<circle cx="1070" cy="450" r="0.65" fill="#303930"/>
+<circle cx="1090" cy="450" r="0.65" fill="#303930"/>
+<circle cx="250" cy="470" r="0.65" fill="#303930"/>
+<circle cx="270" cy="470" r="0.65" fill="#303930"/>
+<circle cx="290" cy="470" r="0.65" fill="#303930"/>
+<circle cx="310" cy="470" r="0.65" fill="#303930"/>
+<circle cx="330" cy="470" r="0.65" fill="#303930"/>
+<circle cx="350" cy="470" r="0.65" fill="#303930"/>
+<circle cx="370" cy="470" r="0.65" fill="#303930"/>
+<circle cx="390" cy="470" r="0.65" fill="#303930"/>
+<circle cx="410" cy="470" r="0.65" fill="#303930"/>
+<circle cx="430" cy="470" r="0.65" fill="#303930"/>
+<circle cx="450" cy="470" r="0.65" fill="#303930"/>
+<circle cx="470" cy="470" r="0.65" fill="#303930"/>
+<circle cx="490" cy="470" r="0.65" fill="#303930"/>
+<circle cx="510" cy="470" r="0.65" fill="#303930"/>
+<circle cx="530" cy="470" r="0.65" fill="#303930"/>
+<circle cx="550" cy="470" r="0.65" fill="#303930"/>
+<circle cx="570" cy="470" r="0.65" fill="#303930"/>
+<circle cx="590" cy="470" r="0.65" fill="#303930"/>
+<circle cx="610" cy="470" r="0.65" fill="#303930"/>
+<circle cx="630" cy="470" r="0.65" fill="#303930"/>
+<circle cx="650" cy="470" r="0.65" fill="#303930"/>
+<circle cx="670" cy="470" r="0.65" fill="#303930"/>
+<circle cx="690" cy="470" r="0.65" fill="#303930"/>
+<circle cx="710" cy="470" r="0.65" fill="#303930"/>
+<circle cx="730" cy="470" r="0.65" fill="#303930"/>
+<circle cx="750" cy="470" r="0.65" fill="#303930"/>
+<circle cx="770" cy="470" r="0.65" fill="#303930"/>
+<circle cx="790" cy="470" r="0.65" fill="#303930"/>
+<circle cx="810" cy="470" r="0.65" fill="#303930"/>
+<circle cx="830" cy="470" r="0.65" fill="#303930"/>
+<circle cx="850" cy="470" r="0.65" fill="#303930"/>
+<circle cx="870" cy="470" r="0.65" fill="#303930"/>
+<circle cx="890" cy="470" r="0.65" fill="#303930"/>
+<circle cx="910" cy="470" r="0.65" fill="#303930"/>
+<circle cx="930" cy="470" r="0.65" fill="#303930"/>
+<circle cx="950" cy="470" r="0.65" fill="#303930"/>
+<circle cx="970" cy="470" r="0.65" fill="#303930"/>
+<circle cx="990" cy="470" r="0.65" fill="#303930"/>
+<circle cx="1010" cy="470" r="0.65" fill="#303930"/>
+<circle cx="1030" cy="470" r="0.65" fill="#303930"/>
+<circle cx="1050" cy="470" r="0.65" fill="#303930"/>
+<circle cx="1070" cy="470" r="0.65" fill="#303930"/>
+<circle cx="1090" cy="470" r="0.65" fill="#303930"/>
+<circle cx="250" cy="490" r="0.65" fill="#303930"/>
+<circle cx="270" cy="490" r="0.65" fill="#303930"/>
+<circle cx="290" cy="490" r="0.65" fill="#303930"/>
+<circle cx="310" cy="490" r="0.65" fill="#303930"/>
+<circle cx="330" cy="490" r="0.65" fill="#303930"/>
+<circle cx="350" cy="490" r="0.65" fill="#303930"/>
+<circle cx="370" cy="490" r="0.65" fill="#303930"/>
+<circle cx="390" cy="490" r="0.65" fill="#303930"/>
+<circle cx="410" cy="490" r="0.65" fill="#303930"/>
+<circle cx="430" cy="490" r="0.65" fill="#303930"/>
+<circle cx="450" cy="490" r="0.65" fill="#303930"/>
+<circle cx="470" cy="490" r="0.65" fill="#303930"/>
+<circle cx="490" cy="490" r="0.65" fill="#303930"/>
+<circle cx="510" cy="490" r="0.65" fill="#303930"/>
+<circle cx="530" cy="490" r="0.65" fill="#303930"/>
+<circle cx="550" cy="490" r="0.65" fill="#303930"/>
+<circle cx="570" cy="490" r="0.65" fill="#303930"/>
+<circle cx="590" cy="490" r="0.65" fill="#303930"/>
+<circle cx="610" cy="490" r="0.65" fill="#303930"/>
+<circle cx="630" cy="490" r="0.65" fill="#303930"/>
+<circle cx="650" cy="490" r="0.65" fill="#303930"/>
+<circle cx="670" cy="490" r="0.65" fill="#303930"/>
+<circle cx="690" cy="490" r="0.65" fill="#303930"/>
+<circle cx="710" cy="490" r="0.65" fill="#303930"/>
+<circle cx="730" cy="490" r="0.65" fill="#303930"/>
+<circle cx="750" cy="490" r="0.65" fill="#303930"/>
+<circle cx="770" cy="490" r="0.65" fill="#303930"/>
+<circle cx="790" cy="490" r="0.65" fill="#303930"/>
+<circle cx="810" cy="490" r="0.65" fill="#303930"/>
+<circle cx="830" cy="490" r="0.65" fill="#303930"/>
+<circle cx="850" cy="490" r="0.65" fill="#303930"/>
+<circle cx="870" cy="490" r="0.65" fill="#303930"/>
+<circle cx="890" cy="490" r="0.65" fill="#303930"/>
+<circle cx="910" cy="490" r="0.65" fill="#303930"/>
+<circle cx="930" cy="490" r="0.65" fill="#303930"/>
+<circle cx="950" cy="490" r="0.65" fill="#303930"/>
+<circle cx="970" cy="490" r="0.65" fill="#303930"/>
+<circle cx="990" cy="490" r="0.65" fill="#303930"/>
+<circle cx="1010" cy="490" r="0.65" fill="#303930"/>
+<circle cx="1030" cy="490" r="0.65" fill="#303930"/>
+<circle cx="1050" cy="490" r="0.65" fill="#303930"/>
+<circle cx="1070" cy="490" r="0.65" fill="#303930"/>
+<circle cx="1090" cy="490" r="0.65" fill="#303930"/>
+<circle cx="250" cy="510" r="0.65" fill="#303930"/>
+<circle cx="270" cy="510" r="0.65" fill="#303930"/>
+<circle cx="290" cy="510" r="0.65" fill="#303930"/>
+<circle cx="310" cy="510" r="0.65" fill="#303930"/>
+<circle cx="330" cy="510" r="0.65" fill="#303930"/>
+<circle cx="350" cy="510" r="0.65" fill="#303930"/>
+<circle cx="370" cy="510" r="0.65" fill="#303930"/>
+<circle cx="390" cy="510" r="0.65" fill="#303930"/>
+<circle cx="410" cy="510" r="0.65" fill="#303930"/>
+<circle cx="430" cy="510" r="0.65" fill="#303930"/>
+<circle cx="450" cy="510" r="0.65" fill="#303930"/>
+<circle cx="470" cy="510" r="0.65" fill="#303930"/>
+<circle cx="490" cy="510" r="0.65" fill="#303930"/>
+<circle cx="510" cy="510" r="0.65" fill="#303930"/>
+<circle cx="530" cy="510" r="0.65" fill="#303930"/>
+<circle cx="550" cy="510" r="0.65" fill="#303930"/>
+<circle cx="570" cy="510" r="0.65" fill="#303930"/>
+<circle cx="590" cy="510" r="0.65" fill="#303930"/>
+<circle cx="610" cy="510" r="0.65" fill="#303930"/>
+<circle cx="630" cy="510" r="0.65" fill="#303930"/>
+<circle cx="650" cy="510" r="0.65" fill="#303930"/>
+<circle cx="670" cy="510" r="0.65" fill="#303930"/>
+<circle cx="690" cy="510" r="0.65" fill="#303930"/>
+<circle cx="710" cy="510" r="0.65" fill="#303930"/>
+<circle cx="730" cy="510" r="0.65" fill="#303930"/>
+<circle cx="750" cy="510" r="0.65" fill="#303930"/>
+<circle cx="770" cy="510" r="0.65" fill="#303930"/>
+<circle cx="790" cy="510" r="0.65" fill="#303930"/>
+<circle cx="810" cy="510" r="0.65" fill="#303930"/>
+<circle cx="830" cy="510" r="0.65" fill="#303930"/>
+<circle cx="850" cy="510" r="0.65" fill="#303930"/>
+<circle cx="870" cy="510" r="0.65" fill="#303930"/>
+<circle cx="890" cy="510" r="0.65" fill="#303930"/>
+<circle cx="910" cy="510" r="0.65" fill="#303930"/>
+<circle cx="930" cy="510" r="0.65" fill="#303930"/>
+<circle cx="950" cy="510" r="0.65" fill="#303930"/>
+<circle cx="970" cy="510" r="0.65" fill="#303930"/>
+<circle cx="990" cy="510" r="0.65" fill="#303930"/>
+<circle cx="1010" cy="510" r="0.65" fill="#303930"/>
+<circle cx="1030" cy="510" r="0.65" fill="#303930"/>
+<circle cx="1050" cy="510" r="0.65" fill="#303930"/>
+<circle cx="1070" cy="510" r="0.65" fill="#303930"/>
+<circle cx="1090" cy="510" r="0.65" fill="#303930"/>
+<circle cx="250" cy="530" r="0.65" fill="#303930"/>
+<circle cx="270" cy="530" r="0.65" fill="#303930"/>
+<circle cx="290" cy="530" r="0.65" fill="#303930"/>
+<circle cx="310" cy="530" r="0.65" fill="#303930"/>
+<circle cx="330" cy="530" r="0.65" fill="#303930"/>
+<circle cx="350" cy="530" r="0.65" fill="#303930"/>
+<circle cx="370" cy="530" r="0.65" fill="#303930"/>
+<circle cx="390" cy="530" r="0.65" fill="#303930"/>
+<circle cx="410" cy="530" r="0.65" fill="#303930"/>
+<circle cx="430" cy="530" r="0.65" fill="#303930"/>
+<circle cx="450" cy="530" r="0.65" fill="#303930"/>
+<circle cx="470" cy="530" r="0.65" fill="#303930"/>
+<circle cx="490" cy="530" r="0.65" fill="#303930"/>
+<circle cx="510" cy="530" r="0.65" fill="#303930"/>
+<circle cx="530" cy="530" r="0.65" fill="#303930"/>
+<circle cx="550" cy="530" r="0.65" fill="#303930"/>
+<circle cx="570" cy="530" r="0.65" fill="#303930"/>
+<circle cx="590" cy="530" r="0.65" fill="#303930"/>
+<circle cx="610" cy="530" r="0.65" fill="#303930"/>
+<circle cx="630" cy="530" r="0.65" fill="#303930"/>
+<circle cx="650" cy="530" r="0.65" fill="#303930"/>
+<circle cx="670" cy="530" r="0.65" fill="#303930"/>
+<circle cx="690" cy="530" r="0.65" fill="#303930"/>
+<circle cx="710" cy="530" r="0.65" fill="#303930"/>
+<circle cx="730" cy="530" r="0.65" fill="#303930"/>
+<circle cx="750" cy="530" r="0.65" fill="#303930"/>
+<circle cx="770" cy="530" r="0.65" fill="#303930"/>
+<circle cx="790" cy="530" r="0.65" fill="#303930"/>
+<circle cx="810" cy="530" r="0.65" fill="#303930"/>
+<circle cx="830" cy="530" r="0.65" fill="#303930"/>
+<circle cx="850" cy="530" r="0.65" fill="#303930"/>
+<circle cx="870" cy="530" r="0.65" fill="#303930"/>
+<circle cx="890" cy="530" r="0.65" fill="#303930"/>
+<circle cx="910" cy="530" r="0.65" fill="#303930"/>
+<circle cx="930" cy="530" r="0.65" fill="#303930"/>
+<circle cx="950" cy="530" r="0.65" fill="#303930"/>
+<circle cx="970" cy="530" r="0.65" fill="#303930"/>
+<circle cx="990" cy="530" r="0.65" fill="#303930"/>
+<circle cx="1010" cy="530" r="0.65" fill="#303930"/>
+<circle cx="1030" cy="530" r="0.65" fill="#303930"/>
+<circle cx="1050" cy="530" r="0.65" fill="#303930"/>
+<circle cx="1070" cy="530" r="0.65" fill="#303930"/>
+<circle cx="1090" cy="530" r="0.65" fill="#303930"/>
+<circle cx="250" cy="550" r="0.65" fill="#303930"/>
+<circle cx="270" cy="550" r="0.65" fill="#303930"/>
+<circle cx="290" cy="550" r="0.65" fill="#303930"/>
+<circle cx="310" cy="550" r="0.65" fill="#303930"/>
+<circle cx="330" cy="550" r="0.65" fill="#303930"/>
+<circle cx="350" cy="550" r="0.65" fill="#303930"/>
+<circle cx="370" cy="550" r="0.65" fill="#303930"/>
+<circle cx="390" cy="550" r="0.65" fill="#303930"/>
+<circle cx="410" cy="550" r="0.65" fill="#303930"/>
+<circle cx="430" cy="550" r="0.65" fill="#303930"/>
+<circle cx="450" cy="550" r="0.65" fill="#303930"/>
+<circle cx="470" cy="550" r="0.65" fill="#303930"/>
+<circle cx="490" cy="550" r="0.65" fill="#303930"/>
+<circle cx="510" cy="550" r="0.65" fill="#303930"/>
+<circle cx="530" cy="550" r="0.65" fill="#303930"/>
+<circle cx="550" cy="550" r="0.65" fill="#303930"/>
+<circle cx="570" cy="550" r="0.65" fill="#303930"/>
+<circle cx="590" cy="550" r="0.65" fill="#303930"/>
+<circle cx="610" cy="550" r="0.65" fill="#303930"/>
+<circle cx="630" cy="550" r="0.65" fill="#303930"/>
+<circle cx="650" cy="550" r="0.65" fill="#303930"/>
+<circle cx="670" cy="550" r="0.65" fill="#303930"/>
+<circle cx="690" cy="550" r="0.65" fill="#303930"/>
+<circle cx="710" cy="550" r="0.65" fill="#303930"/>
+<circle cx="730" cy="550" r="0.65" fill="#303930"/>
+<circle cx="750" cy="550" r="0.65" fill="#303930"/>
+<circle cx="770" cy="550" r="0.65" fill="#303930"/>
+<circle cx="790" cy="550" r="0.65" fill="#303930"/>
+<circle cx="810" cy="550" r="0.65" fill="#303930"/>
+<circle cx="830" cy="550" r="0.65" fill="#303930"/>
+<circle cx="850" cy="550" r="0.65" fill="#303930"/>
+<circle cx="870" cy="550" r="0.65" fill="#303930"/>
+<circle cx="890" cy="550" r="0.65" fill="#303930"/>
+<circle cx="910" cy="550" r="0.65" fill="#303930"/>
+<circle cx="930" cy="550" r="0.65" fill="#303930"/>
+<circle cx="950" cy="550" r="0.65" fill="#303930"/>
+<circle cx="970" cy="550" r="0.65" fill="#303930"/>
+<circle cx="990" cy="550" r="0.65" fill="#303930"/>
+<circle cx="1010" cy="550" r="0.65" fill="#303930"/>
+<circle cx="1030" cy="550" r="0.65" fill="#303930"/>
+<circle cx="1050" cy="550" r="0.65" fill="#303930"/>
+<circle cx="1070" cy="550" r="0.65" fill="#303930"/>
+<circle cx="1090" cy="550" r="0.65" fill="#303930"/>
+<circle cx="250" cy="570" r="0.65" fill="#303930"/>
+<circle cx="270" cy="570" r="0.65" fill="#303930"/>
+<circle cx="290" cy="570" r="0.65" fill="#303930"/>
+<circle cx="310" cy="570" r="0.65" fill="#303930"/>
+<circle cx="330" cy="570" r="0.65" fill="#303930"/>
+<circle cx="350" cy="570" r="0.65" fill="#303930"/>
+<circle cx="370" cy="570" r="0.65" fill="#303930"/>
+<circle cx="390" cy="570" r="0.65" fill="#303930"/>
+<circle cx="410" cy="570" r="0.65" fill="#303930"/>
+<circle cx="430" cy="570" r="0.65" fill="#303930"/>
+<circle cx="450" cy="570" r="0.65" fill="#303930"/>
+<circle cx="470" cy="570" r="0.65" fill="#303930"/>
+<circle cx="490" cy="570" r="0.65" fill="#303930"/>
+<circle cx="510" cy="570" r="0.65" fill="#303930"/>
+<circle cx="530" cy="570" r="0.65" fill="#303930"/>
+<circle cx="550" cy="570" r="0.65" fill="#303930"/>
+<circle cx="570" cy="570" r="0.65" fill="#303930"/>
+<circle cx="590" cy="570" r="0.65" fill="#303930"/>
+<circle cx="610" cy="570" r="0.65" fill="#303930"/>
+<circle cx="630" cy="570" r="0.65" fill="#303930"/>
+<circle cx="650" cy="570" r="0.65" fill="#303930"/>
+<circle cx="670" cy="570" r="0.65" fill="#303930"/>
+<circle cx="690" cy="570" r="0.65" fill="#303930"/>
+<circle cx="710" cy="570" r="0.65" fill="#303930"/>
+<circle cx="730" cy="570" r="0.65" fill="#303930"/>
+<circle cx="750" cy="570" r="0.65" fill="#303930"/>
+<circle cx="770" cy="570" r="0.65" fill="#303930"/>
+<circle cx="790" cy="570" r="0.65" fill="#303930"/>
+<circle cx="810" cy="570" r="0.65" fill="#303930"/>
+<circle cx="830" cy="570" r="0.65" fill="#303930"/>
+<circle cx="850" cy="570" r="0.65" fill="#303930"/>
+<circle cx="870" cy="570" r="0.65" fill="#303930"/>
+<circle cx="890" cy="570" r="0.65" fill="#303930"/>
+<circle cx="910" cy="570" r="0.65" fill="#303930"/>
+<circle cx="930" cy="570" r="0.65" fill="#303930"/>
+<circle cx="950" cy="570" r="0.65" fill="#303930"/>
+<circle cx="970" cy="570" r="0.65" fill="#303930"/>
+<circle cx="990" cy="570" r="0.65" fill="#303930"/>
+<circle cx="1010" cy="570" r="0.65" fill="#303930"/>
+<circle cx="1030" cy="570" r="0.65" fill="#303930"/>
+<circle cx="1050" cy="570" r="0.65" fill="#303930"/>
+<circle cx="1070" cy="570" r="0.65" fill="#303930"/>
+<circle cx="1090" cy="570" r="0.65" fill="#303930"/>
+<circle cx="250" cy="590" r="0.65" fill="#303930"/>
+<circle cx="270" cy="590" r="0.65" fill="#303930"/>
+<circle cx="290" cy="590" r="0.65" fill="#303930"/>
+<circle cx="310" cy="590" r="0.65" fill="#303930"/>
+<circle cx="330" cy="590" r="0.65" fill="#303930"/>
+<circle cx="350" cy="590" r="0.65" fill="#303930"/>
+<circle cx="370" cy="590" r="0.65" fill="#303930"/>
+<circle cx="390" cy="590" r="0.65" fill="#303930"/>
+<circle cx="410" cy="590" r="0.65" fill="#303930"/>
+<circle cx="430" cy="590" r="0.65" fill="#303930"/>
+<circle cx="450" cy="590" r="0.65" fill="#303930"/>
+<circle cx="470" cy="590" r="0.65" fill="#303930"/>
+<circle cx="490" cy="590" r="0.65" fill="#303930"/>
+<circle cx="510" cy="590" r="0.65" fill="#303930"/>
+<circle cx="530" cy="590" r="0.65" fill="#303930"/>
+<circle cx="550" cy="590" r="0.65" fill="#303930"/>
+<circle cx="570" cy="590" r="0.65" fill="#303930"/>
+<circle cx="590" cy="590" r="0.65" fill="#303930"/>
+<circle cx="610" cy="590" r="0.65" fill="#303930"/>
+<circle cx="630" cy="590" r="0.65" fill="#303930"/>
+<circle cx="650" cy="590" r="0.65" fill="#303930"/>
+<circle cx="670" cy="590" r="0.65" fill="#303930"/>
+<circle cx="690" cy="590" r="0.65" fill="#303930"/>
+<circle cx="710" cy="590" r="0.65" fill="#303930"/>
+<circle cx="730" cy="590" r="0.65" fill="#303930"/>
+<circle cx="750" cy="590" r="0.65" fill="#303930"/>
+<circle cx="770" cy="590" r="0.65" fill="#303930"/>
+<circle cx="790" cy="590" r="0.65" fill="#303930"/>
+<circle cx="810" cy="590" r="0.65" fill="#303930"/>
+<circle cx="830" cy="590" r="0.65" fill="#303930"/>
+<circle cx="850" cy="590" r="0.65" fill="#303930"/>
+<circle cx="870" cy="590" r="0.65" fill="#303930"/>
+<circle cx="890" cy="590" r="0.65" fill="#303930"/>
+<circle cx="910" cy="590" r="0.65" fill="#303930"/>
+<circle cx="930" cy="590" r="0.65" fill="#303930"/>
+<circle cx="950" cy="590" r="0.65" fill="#303930"/>
+<circle cx="970" cy="590" r="0.65" fill="#303930"/>
+<circle cx="990" cy="590" r="0.65" fill="#303930"/>
+<circle cx="1010" cy="590" r="0.65" fill="#303930"/>
+<circle cx="1030" cy="590" r="0.65" fill="#303930"/>
+<circle cx="1050" cy="590" r="0.65" fill="#303930"/>
+<circle cx="1070" cy="590" r="0.65" fill="#303930"/>
+<circle cx="1090" cy="590" r="0.65" fill="#303930"/>
+<circle cx="250" cy="610" r="0.65" fill="#303930"/>
+<circle cx="270" cy="610" r="0.65" fill="#303930"/>
+<circle cx="290" cy="610" r="0.65" fill="#303930"/>
+<circle cx="310" cy="610" r="0.65" fill="#303930"/>
+<circle cx="330" cy="610" r="0.65" fill="#303930"/>
+<circle cx="350" cy="610" r="0.65" fill="#303930"/>
+<circle cx="370" cy="610" r="0.65" fill="#303930"/>
+<circle cx="390" cy="610" r="0.65" fill="#303930"/>
+<circle cx="410" cy="610" r="0.65" fill="#303930"/>
+<circle cx="430" cy="610" r="0.65" fill="#303930"/>
+<circle cx="450" cy="610" r="0.65" fill="#303930"/>
+<circle cx="470" cy="610" r="0.65" fill="#303930"/>
+<circle cx="490" cy="610" r="0.65" fill="#303930"/>
+<circle cx="510" cy="610" r="0.65" fill="#303930"/>
+<circle cx="530" cy="610" r="0.65" fill="#303930"/>
+<circle cx="550" cy="610" r="0.65" fill="#303930"/>
+<circle cx="570" cy="610" r="0.65" fill="#303930"/>
+<circle cx="590" cy="610" r="0.65" fill="#303930"/>
+<circle cx="610" cy="610" r="0.65" fill="#303930"/>
+<circle cx="630" cy="610" r="0.65" fill="#303930"/>
+<circle cx="650" cy="610" r="0.65" fill="#303930"/>
+<circle cx="670" cy="610" r="0.65" fill="#303930"/>
+<circle cx="690" cy="610" r="0.65" fill="#303930"/>
+<circle cx="710" cy="610" r="0.65" fill="#303930"/>
+<circle cx="730" cy="610" r="0.65" fill="#303930"/>
+<circle cx="750" cy="610" r="0.65" fill="#303930"/>
+<circle cx="770" cy="610" r="0.65" fill="#303930"/>
+<circle cx="790" cy="610" r="0.65" fill="#303930"/>
+<circle cx="810" cy="610" r="0.65" fill="#303930"/>
+<circle cx="830" cy="610" r="0.65" fill="#303930"/>
+<circle cx="850" cy="610" r="0.65" fill="#303930"/>
+<circle cx="870" cy="610" r="0.65" fill="#303930"/>
+<circle cx="890" cy="610" r="0.65" fill="#303930"/>
+<circle cx="910" cy="610" r="0.65" fill="#303930"/>
+<circle cx="930" cy="610" r="0.65" fill="#303930"/>
+<circle cx="950" cy="610" r="0.65" fill="#303930"/>
+<circle cx="970" cy="610" r="0.65" fill="#303930"/>
+<circle cx="990" cy="610" r="0.65" fill="#303930"/>
+<circle cx="1010" cy="610" r="0.65" fill="#303930"/>
+<circle cx="1030" cy="610" r="0.65" fill="#303930"/>
+<circle cx="1050" cy="610" r="0.65" fill="#303930"/>
+<circle cx="1070" cy="610" r="0.65" fill="#303930"/>
+<circle cx="1090" cy="610" r="0.65" fill="#303930"/>
+<circle cx="250" cy="630" r="0.65" fill="#303930"/>
+<circle cx="270" cy="630" r="0.65" fill="#303930"/>
+<circle cx="290" cy="630" r="0.65" fill="#303930"/>
+<circle cx="310" cy="630" r="0.65" fill="#303930"/>
+<circle cx="330" cy="630" r="0.65" fill="#303930"/>
+<circle cx="350" cy="630" r="0.65" fill="#303930"/>
+<circle cx="370" cy="630" r="0.65" fill="#303930"/>
+<circle cx="390" cy="630" r="0.65" fill="#303930"/>
+<circle cx="410" cy="630" r="0.65" fill="#303930"/>
+<circle cx="430" cy="630" r="0.65" fill="#303930"/>
+<circle cx="450" cy="630" r="0.65" fill="#303930"/>
+<circle cx="470" cy="630" r="0.65" fill="#303930"/>
+<circle cx="490" cy="630" r="0.65" fill="#303930"/>
+<circle cx="510" cy="630" r="0.65" fill="#303930"/>
+<circle cx="530" cy="630" r="0.65" fill="#303930"/>
+<circle cx="550" cy="630" r="0.65" fill="#303930"/>
+<circle cx="570" cy="630" r="0.65" fill="#303930"/>
+<circle cx="590" cy="630" r="0.65" fill="#303930"/>
+<circle cx="610" cy="630" r="0.65" fill="#303930"/>
+<circle cx="630" cy="630" r="0.65" fill="#303930"/>
+<circle cx="650" cy="630" r="0.65" fill="#303930"/>
+<circle cx="670" cy="630" r="0.65" fill="#303930"/>
+<circle cx="690" cy="630" r="0.65" fill="#303930"/>
+<circle cx="710" cy="630" r="0.65" fill="#303930"/>
+<circle cx="730" cy="630" r="0.65" fill="#303930"/>
+<circle cx="750" cy="630" r="0.65" fill="#303930"/>
+<circle cx="770" cy="630" r="0.65" fill="#303930"/>
+<circle cx="790" cy="630" r="0.65" fill="#303930"/>
+<circle cx="810" cy="630" r="0.65" fill="#303930"/>
+<circle cx="830" cy="630" r="0.65" fill="#303930"/>
+<circle cx="850" cy="630" r="0.65" fill="#303930"/>
+<circle cx="870" cy="630" r="0.65" fill="#303930"/>
+<circle cx="890" cy="630" r="0.65" fill="#303930"/>
+<circle cx="910" cy="630" r="0.65" fill="#303930"/>
+<circle cx="930" cy="630" r="0.65" fill="#303930"/>
+<circle cx="950" cy="630" r="0.65" fill="#303930"/>
+<circle cx="970" cy="630" r="0.65" fill="#303930"/>
+<circle cx="990" cy="630" r="0.65" fill="#303930"/>
+<circle cx="1010" cy="630" r="0.65" fill="#303930"/>
+<circle cx="1030" cy="630" r="0.65" fill="#303930"/>
+<circle cx="1050" cy="630" r="0.65" fill="#303930"/>
+<circle cx="1070" cy="630" r="0.65" fill="#303930"/>
+<circle cx="1090" cy="630" r="0.65" fill="#303930"/>
+<circle cx="250" cy="650" r="0.65" fill="#303930"/>
+<circle cx="270" cy="650" r="0.65" fill="#303930"/>
+<circle cx="290" cy="650" r="0.65" fill="#303930"/>
+<circle cx="310" cy="650" r="0.65" fill="#303930"/>
+<circle cx="330" cy="650" r="0.65" fill="#303930"/>
+<circle cx="350" cy="650" r="0.65" fill="#303930"/>
+<circle cx="370" cy="650" r="0.65" fill="#303930"/>
+<circle cx="390" cy="650" r="0.65" fill="#303930"/>
+<circle cx="410" cy="650" r="0.65" fill="#303930"/>
+<circle cx="430" cy="650" r="0.65" fill="#303930"/>
+<circle cx="450" cy="650" r="0.65" fill="#303930"/>
+<circle cx="470" cy="650" r="0.65" fill="#303930"/>
+<circle cx="490" cy="650" r="0.65" fill="#303930"/>
+<circle cx="510" cy="650" r="0.65" fill="#303930"/>
+<circle cx="530" cy="650" r="0.65" fill="#303930"/>
+<circle cx="550" cy="650" r="0.65" fill="#303930"/>
+<circle cx="570" cy="650" r="0.65" fill="#303930"/>
+<circle cx="590" cy="650" r="0.65" fill="#303930"/>
+<circle cx="610" cy="650" r="0.65" fill="#303930"/>
+<circle cx="630" cy="650" r="0.65" fill="#303930"/>
+<circle cx="650" cy="650" r="0.65" fill="#303930"/>
+<circle cx="670" cy="650" r="0.65" fill="#303930"/>
+<circle cx="690" cy="650" r="0.65" fill="#303930"/>
+<circle cx="710" cy="650" r="0.65" fill="#303930"/>
+<circle cx="730" cy="650" r="0.65" fill="#303930"/>
+<circle cx="750" cy="650" r="0.65" fill="#303930"/>
+<circle cx="770" cy="650" r="0.65" fill="#303930"/>
+<circle cx="790" cy="650" r="0.65" fill="#303930"/>
+<circle cx="810" cy="650" r="0.65" fill="#303930"/>
+<circle cx="830" cy="650" r="0.65" fill="#303930"/>
+<circle cx="850" cy="650" r="0.65" fill="#303930"/>
+<circle cx="870" cy="650" r="0.65" fill="#303930"/>
+<circle cx="890" cy="650" r="0.65" fill="#303930"/>
+<circle cx="910" cy="650" r="0.65" fill="#303930"/>
+<circle cx="930" cy="650" r="0.65" fill="#303930"/>
+<circle cx="950" cy="650" r="0.65" fill="#303930"/>
+<circle cx="970" cy="650" r="0.65" fill="#303930"/>
+<circle cx="990" cy="650" r="0.65" fill="#303930"/>
+<circle cx="1010" cy="650" r="0.65" fill="#303930"/>
+<circle cx="1030" cy="650" r="0.65" fill="#303930"/>
+<circle cx="1050" cy="650" r="0.65" fill="#303930"/>
+<circle cx="1070" cy="650" r="0.65" fill="#303930"/>
+<circle cx="1090" cy="650" r="0.65" fill="#303930"/>
+<circle cx="250" cy="670" r="0.65" fill="#303930"/>
+<circle cx="270" cy="670" r="0.65" fill="#303930"/>
+<circle cx="290" cy="670" r="0.65" fill="#303930"/>
+<circle cx="310" cy="670" r="0.65" fill="#303930"/>
+<circle cx="330" cy="670" r="0.65" fill="#303930"/>
+<circle cx="350" cy="670" r="0.65" fill="#303930"/>
+<circle cx="370" cy="670" r="0.65" fill="#303930"/>
+<circle cx="390" cy="670" r="0.65" fill="#303930"/>
+<circle cx="410" cy="670" r="0.65" fill="#303930"/>
+<circle cx="430" cy="670" r="0.65" fill="#303930"/>
+<circle cx="450" cy="670" r="0.65" fill="#303930"/>
+<circle cx="470" cy="670" r="0.65" fill="#303930"/>
+<circle cx="490" cy="670" r="0.65" fill="#303930"/>
+<circle cx="510" cy="670" r="0.65" fill="#303930"/>
+<circle cx="530" cy="670" r="0.65" fill="#303930"/>
+<circle cx="550" cy="670" r="0.65" fill="#303930"/>
+<circle cx="570" cy="670" r="0.65" fill="#303930"/>
+<circle cx="590" cy="670" r="0.65" fill="#303930"/>
+<circle cx="610" cy="670" r="0.65" fill="#303930"/>
+<circle cx="630" cy="670" r="0.65" fill="#303930"/>
+<circle cx="650" cy="670" r="0.65" fill="#303930"/>
+<circle cx="670" cy="670" r="0.65" fill="#303930"/>
+<circle cx="690" cy="670" r="0.65" fill="#303930"/>
+<circle cx="710" cy="670" r="0.65" fill="#303930"/>
+<circle cx="730" cy="670" r="0.65" fill="#303930"/>
+<circle cx="750" cy="670" r="0.65" fill="#303930"/>
+<circle cx="770" cy="670" r="0.65" fill="#303930"/>
+<circle cx="790" cy="670" r="0.65" fill="#303930"/>
+<circle cx="810" cy="670" r="0.65" fill="#303930"/>
+<circle cx="830" cy="670" r="0.65" fill="#303930"/>
+<circle cx="850" cy="670" r="0.65" fill="#303930"/>
+<circle cx="870" cy="670" r="0.65" fill="#303930"/>
+<circle cx="890" cy="670" r="0.65" fill="#303930"/>
+<circle cx="910" cy="670" r="0.65" fill="#303930"/>
+<circle cx="930" cy="670" r="0.65" fill="#303930"/>
+<circle cx="950" cy="670" r="0.65" fill="#303930"/>
+<circle cx="970" cy="670" r="0.65" fill="#303930"/>
+<circle cx="990" cy="670" r="0.65" fill="#303930"/>
+<circle cx="1010" cy="670" r="0.65" fill="#303930"/>
+<circle cx="1030" cy="670" r="0.65" fill="#303930"/>
+<circle cx="1050" cy="670" r="0.65" fill="#303930"/>
+<circle cx="1070" cy="670" r="0.65" fill="#303930"/>
+<circle cx="1090" cy="670" r="0.65" fill="#303930"/>
+<path d="M670 483L441 354" fill="none" stroke="#536055" stroke-width="1.3"/>
+<path d="M670 483L899 354" fill="none" stroke="#536055" stroke-width="1.3"/>
+<path d="M670 483L378 482" fill="none" stroke="#c5f477" stroke-width="1.3"/>
+<path d="M670 483L965 482" fill="none" stroke="#536055" stroke-width="1.3"/>
+<path d="M670 483L441 613" fill="none" stroke="#536055" stroke-width="1.3"/>
+<path d="M670 483L899 613" fill="none" stroke="#536055" stroke-width="1.3" stroke-dasharray="5 5"/>
+<text x="494" y="398" font-family="Arial, sans-serif" font-size="9" font-weight="400" fill="#a5aea8">belongs to</text>
+<text x="766" y="398" font-family="Arial, sans-serif" font-size="9" font-weight="400" fill="#a5aea8">exposure</text>
+<text x="453" y="470" font-family="Arial, sans-serif" font-size="9" font-weight="400" fill="#c5f477">reports</text>
+<text x="815" y="470" font-family="Arial, sans-serif" font-size="9" font-weight="400" fill="#a5aea8">mentions</text>
+<text x="491" y="567" font-family="Arial, sans-serif" font-size="9" font-weight="400" fill="#a5aea8">sector peers</text>
+<text x="760" y="567" font-family="Arial, sans-serif" font-size="9" font-weight="400" fill="#a5aea8">schedule</text>
+<rect x="374.0" y="326" width="134" height="56" rx="8" fill="#1c2221" stroke="#4a554b"/>
+<text x="387.0" y="346" font-family="Arial, sans-serif" font-size="9" font-weight="400" fill="#a5aea8">SECTOR</text>
+<text x="387.0" y="368" font-family="Arial, sans-serif" font-size="14" font-weight="400" fill="#edf0e8">Energy</text>
+<rect x="832.0" y="326" width="134" height="56" rx="8" fill="#1c2221" stroke="#4a554b"/>
+<text x="845.0" y="346" font-family="Arial, sans-serif" font-size="9" font-weight="400" fill="#a5aea8">MACRO</text>
+<text x="845.0" y="368" font-family="Arial, sans-serif" font-size="14" font-weight="400" fill="#edf0e8">Crude oil</text>
+<rect x="311.0" y="454" width="134" height="56" rx="8" fill="#293522" stroke="#c5f477"/>
+<text x="324.0" y="474" font-family="Arial, sans-serif" font-size="9" font-weight="400" fill="#a5aea8">COMPANY EVENT</text>
+<text x="324.0" y="496" font-family="Arial, sans-serif" font-size="14" font-weight="400" fill="#edf0e8">Earnings</text>
+<rect x="898.0" y="454" width="134" height="56" rx="8" fill="#1c2221" stroke="#4a554b"/>
+<text x="911.0" y="474" font-family="Arial, sans-serif" font-size="9" font-weight="400" fill="#a5aea8">NEWS</text>
+<text x="911.0" y="496" font-family="Arial, sans-serif" font-size="14" font-weight="400" fill="#edf0e8">Policy update</text>
+<rect x="374.0" y="585" width="134" height="56" rx="8" fill="#1c2221" stroke="#4a554b"/>
+<text x="387.0" y="605" font-family="Arial, sans-serif" font-size="9" font-weight="400" fill="#a5aea8">RELATED STOCKS</text>
+<text x="387.0" y="627" font-family="Arial, sans-serif" font-size="14" font-weight="400" fill="#edf0e8">ONGC +2</text>
+<rect x="826.0" y="585" width="146" height="56" rx="8" fill="#1c2221" stroke="#4a554b"/>
+<text x="839.0" y="605" font-family="Arial, sans-serif" font-size="9" font-weight="400" fill="#a5aea8">CALENDAR</text>
+<text x="839.0" y="627" font-family="Arial, sans-serif" font-size="14" font-weight="400" fill="#edf0e8">Market holiday</text>
+<rect x="592" y="437" width="156" height="92" rx="9" fill="#c5f477" stroke="#c5f477"/>
+<text x="611" y="458" font-family="Arial, sans-serif" font-size="9" font-weight="400" fill="#41542c">SELECTED STOCK</text>
+<text x="618" y="487" font-family="Arial, sans-serif" font-size="20" font-weight="700" fill="#1d2714">RELIANCE</text>
+<text x="630" y="510" font-family="Arial, sans-serif" font-size="11" font-weight="400" fill="#41542c">6 connections</text>
+<path d="M253 689L272 689" fill="none" stroke="#7d887e" stroke-width="1.3"/>
+<text x="279" y="693" font-family="Arial, sans-serif" font-size="10" font-weight="400" fill="#a5aea8">Documented relationship</text>
+<path d="M448 689L467 689" fill="none" stroke="#7d887e" stroke-width="1.3" stroke-dasharray="4 4"/>
+<text x="474" y="693" font-family="Arial, sans-serif" font-size="10" font-weight="400" fill="#a5aea8">Calendar context</text>
+<text x="936" y="693" font-family="Arial, sans-serif" font-size="10" font-weight="400" fill="#a5aea8">Click a node to inspect →</text>
+<text x="1142" y="279" font-family="Arial, sans-serif" font-size="10" font-weight="700" fill="#a5aea8">CONNECTION EVIDENCE</text>
+<text x="1142" y="316" font-family="Arial, sans-serif" font-size="21" font-weight="400" fill="#edf0e8">Quarterly earnings</text>
+<text x="1142" y="340" font-family="Arial, sans-serif" font-size="10" font-weight="400" fill="#c5f477">Company event · Direct relationship</text>
+<text x="1142" y="370" font-family="Arial, sans-serif" font-size="11" font-weight="400" fill="#a5aea8">Results can change expectations for</text>
+<text x="1142" y="388" font-family="Arial, sans-serif" font-size="11" font-weight="400" fill="#a5aea8">revenue, margins, and earnings.</text>
+<text x="1142" y="406" font-family="Arial, sans-serif" font-size="11" font-weight="400" fill="#a5aea8">Compare the release with the price window.</text>
+<text x="1142" y="443" font-family="Arial, sans-serif" font-size="10" font-weight="400" fill="#a5aea8">Relationship</text>
+<text x="1142" y="462" font-family="Arial, sans-serif" font-size="11" font-weight="400" fill="#edf0e8">Reports financial results</text>
+<text x="1142" y="487" font-family="Arial, sans-serif" font-size="10" font-weight="400" fill="#a5aea8">Evidence</text>
+<text x="1142" y="506" font-family="Arial, sans-serif" font-size="11" font-weight="400" fill="#edf0e8">Company filing placeholder</text>
+<text x="1142" y="531" font-family="Arial, sans-serif" font-size="10" font-weight="400" fill="#a5aea8">Event window</text>
+<text x="1142" y="550" font-family="Arial, sans-serif" font-size="11" font-weight="400" fill="#edf0e8">Day 03 · Illustrative timeline</text>
+<path d="M1142 568L1387 568" fill="none" stroke="#303638" stroke-width="1.3"/>
+<text x="1142" y="589" font-family="Arial, sans-serif" font-size="10" font-weight="700" fill="#a5aea8">PRICE AROUND EVENT</text>
+<path d="M1144 632L1165 622L1180 624L1201 616L1220 621L1241 609L1261 614L1280 602L1301 607L1323 592L1344 601L1365 588L1385 591" fill="none" stroke="#c5f477" stroke-width="1.6"/>
+<path d="M1280 588L1280 638" fill="none" stroke="#87927f" stroke-width="1.3" stroke-dasharray="3 3"/>
+<text x="1142" y="653" font-family="Arial, sans-serif" font-size="9" font-weight="400" fill="#a5aea8">Illustrative only · No causal attribution</text>
+<rect x="1142" y="668" width="245" height="28" rx="5" fill="#c5f477" stroke="#c5f477"/>
+<text x="1210" y="686" font-family="Arial, sans-serif" font-size="11" font-weight="400" fill="#1d2714">Inspect evidence ↗</text>
+<rect x="232" y="731" width="1177" height="112" rx="9" fill="#101315" stroke="#303638"/>
+<text x="250" y="756" font-family="Arial, sans-serif" font-size="13" font-weight="400" fill="#edf0e8">Explore across time</text>
+<text x="1208" y="756" font-family="Arial, sans-serif" font-size="10" font-weight="400" fill="#a5aea8">Day 03 / 07 · Earnings window</text>
+<path d="M252 783L1388 783" fill="none" stroke="#3b4933" stroke-width="1.3"/>
+<circle cx="631" cy="783" r="6" fill="#c5f477"/>
+<text x="252" y="808" font-family="Arial, sans-serif" font-size="9" font-weight="400" fill="#a5aea8">DAY 01</text>
+<text x="252" y="827" font-family="Arial, sans-serif" font-size="11" font-weight="400" fill="#edf0e8">Sector update</text>
+<text x="619" y="808" font-family="Arial, sans-serif" font-size="9" font-weight="400" fill="#a5aea8">DAY 03</text>
+<text x="619" y="827" font-family="Arial, sans-serif" font-size="11" font-weight="400" fill="#edf0e8">Quarterly earnings</text>
+<text x="1288" y="808" font-family="Arial, sans-serif" font-size="9" font-weight="400" fill="#a5aea8">DAY 07</text>
+<text x="1288" y="827" font-family="Arial, sans-serif" font-size="11" font-weight="400" fill="#edf0e8">Market holiday</text>
+<text x="232" y="878" font-family="Arial, sans-serif" font-size="10" font-weight="700" fill="#a5aea8">CONNECTED SIGNALS</text>
+<text x="232" y="907" font-family="Arial, sans-serif" font-size="12" font-weight="400" fill="#edf0e8">Policy update · Potential sector relevance</text>
+<text x="924" y="907" font-family="Arial, sans-serif" font-size="10" font-weight="400" fill="#a5aea8">News ↗</text>
+<path d="M232 919L1007 919" fill="none" stroke="#303638" stroke-width="1.3"/>
+<text x="232" y="943" font-family="Arial, sans-serif" font-size="12" font-weight="400" fill="#edf0e8">Exchange holiday · Trading hours context</text>
+<text x="907" y="943" font-family="Arial, sans-serif" font-size="10" font-weight="400" fill="#a5aea8">Calendar ↗</text>
+<rect x="1030" y="862" width="379" height="94" rx="8" fill="#1d261d" stroke="#303638"/>
+<text x="1048" y="885" font-family="Arial, sans-serif" font-size="10" font-weight="700" fill="#a5aea8">MOTION CONCEPT / 00:06</text>
+<text x="1048" y="913" font-family="Arial, sans-serif" font-size="17" font-weight="400" fill="#edf0e8">▶  The connected market</text>
+<text x="1048" y="937" font-family="Arial, sans-serif" font-size="10" font-weight="400" fill="#a5aea8">Play interaction study ↗</text>
+<text x="232" y="983" font-family="Arial, sans-serif" font-size="10" font-weight="400" fill="#a5aea8">CONCEPT WIREFRAME v0.1 · All content is illustrative. Connections show context; they do not prove price impact.</text>
+</svg>

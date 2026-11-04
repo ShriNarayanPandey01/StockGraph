@@ -5,7 +5,7 @@ from typing import Literal
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, Header, Query, Request
-from pydantic import Field, SecretStr, field_validator, model_validator
+from pydantic import Field, SecretStr, field_validator
 
 from marketgraph_platform.auth import require_developer, token_digest
 from marketgraph_platform.models import Input, Principal
@@ -35,22 +35,6 @@ class SignupInput(PasswordInput):
 
 class LoginInput(EmailInput):
     password: SecretStr = Field(min_length=1, max_length=1024)
-
-
-class CodeInput(EmailInput):
-    code: SecretStr = Field(min_length=1, max_length=256)
-    purpose: Literal["verify", "attach"] = "verify"
-    password: SecretStr | None = Field(default=None, min_length=12, max_length=1024)
-
-    @model_validator(mode="after")
-    def password_owner_confirmation(self):
-        if self.purpose == "verify" and self.password is None:
-            raise ValueError("Email activation requires a password chosen by the email owner")
-        return self
-
-
-class ResetInput(PasswordInput):
-    code: SecretStr = Field(min_length=1, max_length=256)
 
 
 class ChangePasswordInput(Input):
@@ -97,29 +81,9 @@ def build_account_router(current_user):
     async def logout(request: Request, authorization: str = Header(), user: Principal = Depends(current_user)):
         return await request.app.state.accounts.logout(token_digest(authorization.partition(" ")[2]))
 
-    @router.post("/api/v1/auth/verify-email")
-    async def verify_email(body: CodeInput, request: Request):
-        return await request.app.state.accounts.consume_code(body.email, body.purpose, body.code.get_secret_value(), address(request), body.password.get_secret_value() if body.password else None)
-
-    @router.post("/api/v1/auth/resend-verification", status_code=202)
-    async def resend(body: EmailInput, request: Request):
-        return await request.app.state.accounts.request_code(body.email, "verify", address(request))
-
-    @router.post("/api/v1/auth/forgot-password", status_code=202)
-    async def forgot(body: EmailInput, request: Request):
-        return await request.app.state.accounts.request_code(body.email, "reset", address(request))
-
-    @router.post("/api/v1/auth/reset-password")
-    async def reset(body: ResetInput, request: Request):
-        return await request.app.state.accounts.consume_code(body.email, "reset", body.code.get_secret_value(), address(request), body.password.get_secret_value())
-
     @router.post("/api/v1/auth/change-password")
     async def change(body: ChangePasswordInput, request: Request, user: Principal = Depends(current_user)):
         return await request.app.state.accounts.change_password(user, body.current_password.get_secret_value(), body.password.get_secret_value())
-
-    @router.post("/api/v1/me/credentials", status_code=202)
-    async def attach(body: PasswordInput, request: Request, user: Principal = Depends(current_user)):
-        return await request.app.state.accounts.attach_credentials(user, body.email, body.password.get_secret_value(), address(request))
 
     @router.get("/api/v1/admin/users")
     async def users(request: Request, user: Principal = Depends(developer), limit: int = Query(50, ge=1, le=200), offset: int = Query(0, ge=0)):

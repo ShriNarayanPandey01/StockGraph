@@ -100,10 +100,24 @@ source job or graph job can be found.
 | `window` | `LAST_6M` | `LAST_6M` or `LAST_1Y` only. |
 | `offset` | `0` | Integer `>= 0`. |
 | `limit` | `50` | Integer from `1` through `200`. |
+| `hops` | omitted | Optional integer `1` through `3`; adds an independent bounded `exploration` graph. |
 | `as_of_ts` | — | Pagination snapshot epoch. Reuse the response value; it expires after the configured one-hour maximum. |
 
 No arbitrary date query is supported. Unknown query parameters (including
 `from_date` and `to_date`) return `422`.
+
+For interactive stock exploration, pass `hops=1`, `2` or `3`. The response adds
+`exploration` with `nodes`, `edges`, `hops`, `distances` (node ID to shortest hop),
+`truncated`, `node_limit` (200) and `edge_limit` (500). Breadth-first traversal
+follows eligible relationships in either direction while retaining the original
+edge arrows. Both endpoints and every traversed relationship obey the fixed
+window, confidence and canonical-news deduplication rules. Node embeddings are
+excluded. Professional evidence remains in its separately authorized section.
+The graph is independent of `offset` and `limit`; those continue to paginate
+the existing top-level evidence and relationship lists. A truncated result is a
+bounded connected selection, not a claim that the full neighborhood is visible.
+The authenticated Platform route `/api/v1/stocks/{ticker}/connections` accepts
+and forwards the same optional `hops` parameter.
 
 ```http
 GET http://localhost:8000/api/v1/stocks/RELIANCE/context?window=LAST_1Y&limit=50&offset=0
@@ -307,21 +321,25 @@ LLM to finish before its inferred edges appear in graph-context responses.
 
 ### Developer graph-edge overrides (FalkorDB)
 
-StockGraph uses FalkorDB, not Neo4j. The developer edge API is disabled by
-default and must be explicitly enabled with
-`DEVELOPER_GRAPH_MUTATIONS_ENABLED=true` in a protected development/admin
-environment. It writes only to FalkorDB and takes the same renewable graph
-writer lease as the worker.
+StockGraph uses FalkorDB, not Neo4j. Only the environment-managed developer
+account reaches these Platform routes. Developer-link edits are enabled by
+default and can be frozen with `DEVELOPER_GRAPH_MUTATIONS_ENABLED=false`.
+Writes take the same renewable graph writer lease as the worker. Canonical
+entity edits are committed by the Data Service, versioned, and projected through
+the normal outbox instead of mutating FalkorDB behind its source of truth.
 
 | Method | Path | Purpose |
 |---|---|---|
 | `POST` | `/api/v1/developer/edges` | Create an auditable `DEVELOPER_LINK` between any two existing labeled graph nodes. |
+| `GET` | `/api/v1/developer/edges` | List developer-created links with pagination and edit history. |
+| `PUT` | `/api/v1/developer/edges/{edge_id}` | Edit a developer-created link and retain its previous values. |
 | `DELETE` | `/api/v1/developer/edges/{edge_id}` | Delete a developer-created link. |
 
 The submitted `relation` is stored as edge metadata; it is not interpolated
 into Cypher. This permits a developer-defined semantic name without allowing
-Cypher injection or arbitrary relationship labels. Direct deletion of LLM,
-provider, curated, and macro-baseline edges is not exposed by this API.
+Cypher injection or arbitrary relationship labels. Manual links appear in stock
+connection context. LLM, provider, curated, and macro-baseline edges remain
+managed by their owning ingestion and versioning flows.
 
 ```http
 POST /api/v1/developer/edges
@@ -607,28 +625,39 @@ per-user limits; ordinary operational limits return `429`.
 
 | Method | Endpoint | Input / behavior |
 |---|---|---|
-| POST | `/api/v1/auth/signup` | `{name,email,password}`; creates a Free User and sends verification code |
+| POST | `/api/v1/auth/signup` | `{name,email,password}`; creates an immediately usable Free User; generic response |
 | POST | `/api/v1/auth/login` | `{email,password}`; returns an expiring opaque bearer session |
 | POST | `/api/v1/auth/logout` | Revoke the authenticated bearer session |
-| POST | `/api/v1/auth/verify-email` | `{email,code,purpose}`; purpose is `verify` or `attach` |
-| POST | `/api/v1/auth/resend-verification` | `{email}`; rate-limited code resend |
-| POST | `/api/v1/auth/forgot-password` | `{email}`; generic recovery response |
-| POST | `/api/v1/auth/reset-password` | `{email,code,password}` |
 | POST | `/api/v1/auth/change-password` | Authenticated `{current_password,password}` |
-| POST | `/api/v1/me/credentials` | Authenticated legacy account `{email,password}`, then verify with purpose `attach` |
 | GET / PUT | `/api/v1/me/active-stocks` | Read/replace selected canonical tickers |
 | PUT / GET / DELETE | `/api/v1/me/broker-connections/upstox` | Save token, read status or disconnect; no token is returned |
 | GET | `/api/v1/admin/users` | Developer-only paginated account list |
 | GET / PATCH | `/api/v1/admin/users/{user_id}` | Developer-only account detail/update |
 | POST | `/api/v1/admin/users/{user_id}/revoke-sessions` | Developer-only session revocation |
+| GET | `/api/v1/admin/graph/entities?kind=Stock` | List the canonical graph catalog, optionally by node kind |
+| PATCH | `/api/v1/admin/graph/entities/{kind}/{entity_id}` | Version and project an editable entity description through Data Service |
+| GET | `/api/v1/admin/graph/stocks/{ticker}/context?window=LAST_1Y` | Read the full paginated stock graph, including professional evidence |
+| GET | `/api/v1/admin/graph/edges` | List developer-created graph links, with pagination |
+| POST / PUT / DELETE | `/api/v1/admin/graph/edges[/{edge_id}]` | Create, edit or remove developer-created graph links |
+| GET | `/api/v1/admin/users/{owner_id}/records/{resource}` | Read another user's watchlists, research, monitors, jobs, alerts or contributions |
+| GET / DELETE | `/api/v1/admin/users/{owner_id}/broker-connections/upstox` | Inspect status or disconnect a saved Upstox token; token values stay hidden |
+| GET | `/api/v1/admin/audit` | Review administrative actions |
 
 Passwords set through public account APIs require at least 12 characters. Account
 updates permit `name`, `roles`, `professional_verified`, `plan`, `plan_expires_at`
 and `disabled`. Ordinary roles are `USER`, `PROFESSIONAL`, `REVIEWER`; plans are
 `FREE` or `PRO`. Plan expiry is an aware future timestamp or null for no expiry.
 The developer status cannot be selected by public or administrative payloads.
-Mail-dependent operations require configured SMTP. Developer environment
-credentials are changed through `.env`, not ordinary password-reset APIs.
+Signup does not verify mailbox ownership. Forgotten-password recovery is unavailable
+until a provider-backed feature is added. Developer environment credentials are
+changed through `.env`; users can change passwords while signed in.
+
+To add or remove professional privileges, update `roles` and
+`professional_verified` together, for example `{"roles":["USER"],
+"professional_verified":false}` to revoke them, or include `PROFESSIONAL` and
+set verification to true to grant verified authorship. `plan` and
+`plan_expires_at` control the user's subscription status; billing is not active.
+All admin routes require the developer's bearer session and write an audit record.
 
 ### Application workflows
 

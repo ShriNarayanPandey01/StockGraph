@@ -16,6 +16,33 @@ from upstox_service.adapters.repositories.timescale.numeric import TimescaleRepo
 from upstox_service.application.financial_context import normalize_statements
 from upstox_service.domain.models import CompanyBundle, EntityKind, StockRegistration, event
 
+ADMIN_CATALOG_FIELDS = {
+    "Stock": {
+        "name", "short_name", "business_summary", "sector", "aliases",
+        "revenue_segments", "raw_material_inputs", "geographic_exposure",
+        "strengths", "business_exclusions", "latest_quarter_summary",
+        "latest_guidance_highlights", "prospectus_links",
+    },
+    "Commodity": {"name", "description", "aliases", "unit", "related_ids", "related_rationale", "exposures"},
+    "MacroFactor": {"name", "description", "aliases", "why_it_moves", "equity_transmission", "default_scope"},
+    "Sector": {"name", "description", "aliases"},
+}
+ADMIN_STRING_FIELDS = {
+    "Stock": {"name", "short_name", "business_summary", "sector"},
+    "Commodity": {"name", "description", "unit", "related_rationale"},
+    "MacroFactor": {"name", "description", "why_it_moves", "equity_transmission", "default_scope"},
+    "Sector": {"name", "description"},
+}
+ADMIN_LIST_FIELDS = {
+    "Stock": {
+        "aliases", "revenue_segments", "raw_material_inputs", "geographic_exposure",
+        "strengths", "business_exclusions", "prospectus_links",
+    },
+    "Commodity": {"aliases", "related_ids", "exposures"},
+    "MacroFactor": {"aliases"},
+    "Sector": {"aliases"},
+}
+
 CATALOG_DDL = """
 CREATE TABLE IF NOT EXISTS entity_catalog (
  kind text NOT NULL CHECK (kind IN ('Stock','Commodity','MacroFactor','Sector')),
@@ -189,6 +216,75 @@ class DataRepository(TimescaleRepository):
             revision, changed = await self._put_entity(conn, kind.value, entity)
         return {
             "entity_id": entity.get("id", entity.get("ticker")),
+            "revision": revision,
+            "changed": changed,
+            "state": "graph_processing" if changed else "unchanged",
+        }
+
+    async def update_catalog_entity(self, kind: EntityKind, entity_id: str, changes: dict) -> dict:
+        """Update descriptive catalog fields and publish a versioned graph event."""
+        name = kind.value
+        allowed = ADMIN_CATALOG_FIELDS[name]
+        invalid = set(changes) - allowed
+        if invalid:
+            raise ValueError(f"Fields cannot be edited for {name}: {', '.join(sorted(invalid))}")
+        for field, value in changes.items():
+            if field in ADMIN_STRING_FIELDS[name]:
+                if field == "default_scope":
+                    if value not in ("BROAD", "SELECTIVE"):
+                        raise ValueError("default_scope must be BROAD or SELECTIVE")
+                elif value is not None and (not isinstance(value, str) or len(value) > 20000):
+                    raise ValueError(f"{field} must be a string of at most 20000 characters")
+                if field == "name" and (not isinstance(value, str) or not value.strip()):
+                    raise ValueError("name cannot be empty or null")
+                if field == "description" and value is not None and not value.strip():
+                    raise ValueError(f"{field} cannot be empty")
+            elif field in ADMIN_LIST_FIELDS[name]:
+                if not isinstance(value, list) or len(value) > 200:
+                    raise ValueError(f"{field} must be a list with at most 200 entries")
+                if field == "prospectus_links":
+                    for item in value:
+                        if not isinstance(item, dict) or set(item) != {"document_type", "url"}:
+                            raise ValueError("prospectus_links entries require document_type and url")
+                        document_type, url = item["document_type"], item["url"]
+                        if (not isinstance(document_type, str) or document_type not in {"DRHP", "RHP"}
+                                or not isinstance(url, str) or len(url) > 2048):
+                            raise ValueError("prospectus_links entries require a valid type and URL")
+                elif any(not isinstance(item, str) or len(item) > 2000 for item in value):
+                    raise ValueError(f"{field} entries must be strings of at most 2000 characters")
+            elif field in {"latest_quarter_summary", "latest_guidance_highlights"}:
+                if value is not None and not isinstance(value, (str, dict)):
+                    raise ValueError(f"{field} must be text, an object, or null")
+        if name == "Stock":
+            entity_id = entity_id.strip().upper()
+        pool = await self.connect()
+        async with pool.acquire() as conn, conn.transaction():
+            await conn.execute(
+                "SELECT pg_advisory_xact_lock(hashtextextended($1,0))", f"{name}:{entity_id}"
+            )
+            row = await conn.fetchrow(
+                "SELECT payload FROM entity_catalog WHERE kind=$1 AND entity_id=$2 FOR UPDATE",
+                name,
+                entity_id,
+            )
+            if row is None:
+                raise KeyError(f"Unknown {name} entity: {entity_id}")
+            entity = json_value(row["payload"])
+            targets = changes.get("exposures", changes.get("related_ids", []))
+            if targets:
+                registered = await conn.fetch(
+                    "SELECT entity_id FROM entity_catalog WHERE kind='Commodity' AND entity_id=ANY($1::text[])",
+                    targets,
+                )
+                known = {item["entity_id"] for item in registered}
+                missing = sorted(set(targets) - known)
+                if missing:
+                    raise ValueError("Unknown canonical commodity ID(s): " + ", ".join(missing))
+            entity.update(changes)
+            revision, changed = await self._put_entity(conn, name, entity)
+        return {
+            "entity_id": entity_id,
+            "kind": name,
             "revision": revision,
             "changed": changed,
             "state": "graph_processing" if changed else "unchanged",

@@ -27,6 +27,7 @@ from stockgraph.domain.developer import (
     DeveloperEdgeCreate,
     DeveloperEdgeDeleteResponse,
     DeveloperEdgeResponse,
+    DeveloperEdgeUpdate,
 )
 from stockgraph.domain.enums import Window
 from stockgraph.domain.manual import ManualEntityInput, ManualEntityKind, ManualNewsInput
@@ -41,6 +42,12 @@ class StockRegistration(BaseModel):
     exchange: str = Field(default="NSE", pattern="^(NSE|BSE)$")
     strengths: list[str] = Field(default_factory=list)
     business_exclusions: list[str] = Field(default_factory=list)
+
+
+class AgentCandidateRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    tickers: list[str] = Field(max_length=5000)
+    as_of_ts: int = Field(ge=0)
 
 
 def create_app(
@@ -84,6 +91,14 @@ def create_app(
     async def review_news_eligibility(body: NewsEligibilityRequest) -> NewsEligibilityVerdict:
         """Internal-only, non-persisting ambiguity review for the Data Service."""
         return await asyncio.to_thread(app.state.eligibility_reviewer.review, body)
+
+    @app.post("/internal/v1/agents/candidates")
+    async def agent_candidates(body: AgentCandidateRequest) -> dict:
+        import time
+        now = int(time.time())
+        if body.as_of_ts > now or body.as_of_ts < now - 300:
+            raise HTTPException(422, "Candidate snapshot time must be recent")
+        return await asyncio.to_thread(app.state.repo.agent_candidates, body.tickers, body.as_of_ts)
 
     @app.post("/api/v1/stocks", status_code=202)
     async def register_stock(body: StockRegistration) -> dict:
@@ -131,6 +146,8 @@ def create_app(
         """Run an explicit developer mutation under the graph-writer lease."""
         if not request.state.developer:
             raise HTTPException(403, "Developer permissions required")
+        if not settings.developer_graph_mutations_enabled:
+            raise HTTPException(403, "Developer graph editing is disabled by configuration")
         with renewable_lock(app.state.broker) as guard:
             if not guard:
                 raise HTTPException(409, "Graph writer is busy; retry the mutation")
@@ -175,6 +192,36 @@ def create_app(
             raise HTTPException(404, "Developer edge not found")
         return DeveloperEdgeDeleteResponse(edge_id=edge_id, deleted=True)
 
+    @app.get("/api/v1/developer/edges")
+    async def list_developer_edges(
+        request: Request,
+        limit: Annotated[int, Query(ge=1, le=500)] = 100,
+        offset: Annotated[int, Query(ge=0)] = 0,
+    ) -> dict:
+        if not request.state.developer:
+            raise HTTPException(403, "Developer permissions required")
+        items = await asyncio.to_thread(app.state.repo.list_developer_edges, limit, offset)
+        return {"items": items, "limit": limit, "offset": offset}
+
+    @app.put("/api/v1/developer/edges/{edge_id}")
+    async def update_developer_edge(
+        edge_id: str, body: DeveloperEdgeUpdate, request: Request
+    ) -> dict:
+        result = await developer_write(
+            lambda: app.state.repo.update_developer_edge(
+                edge_id,
+                relation=body.relation,
+                rationale=body.rationale,
+                actor=body.actor,
+                confidence=body.confidence,
+                metadata=body.metadata,
+            ),
+            request,
+        )
+        if result is None:
+            raise HTTPException(404, "Developer edge not found")
+        return result
+
     @app.get("/api/v1/jobs/{job_id}")
     async def job_status(job_id: UUID) -> dict:
         job = str(job_id)
@@ -209,10 +256,11 @@ def create_app(
         offset: Annotated[int, Query(ge=0)] = 0,
         limit: Annotated[int, Query(ge=1, le=200)] = 50,
         as_of_ts: Annotated[int | None, Query(ge=0)] = None,
+        hops: Annotated[int | None, Query(ge=1, le=3)] = None,
     ) -> GraphContextResponse:
         # Reject old date-range and unbounded contracts instead of silently ignoring them.
-        if set(request.query_params) - {"window", "offset", "limit", "as_of_ts"}:
-            raise HTTPException(422, "Only fixed windows and pagination parameters are accepted")
+        if set(request.query_params) - {"window", "offset", "limit", "as_of_ts", "hops"}:
+            raise HTTPException(422, "Only fixed windows, pagination and hops parameters are accepted")
         import time
 
         if as_of_ts is not None and as_of_ts > int(time.time()):
@@ -225,7 +273,7 @@ def create_app(
         try:
             return await asyncio.to_thread(
                 app.state.context.get_context, ticker, window, offset, limit, as_of_ts,
-                include_professional=request.state.include_professional
+                include_professional=request.state.include_professional, hops=hops,
             )
         except KeyError as exc:
             raise HTTPException(

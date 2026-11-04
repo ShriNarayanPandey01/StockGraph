@@ -16,9 +16,10 @@ the shared service credential.
 
 ```mermaid
 flowchart TB
-    API[FastAPI routes\nmarket · stocks · documents · internal credential validation]
+    API[FastAPI routes\nmarket · stocks · documents · admin catalog edit]
     App[Application services\nStockDataService · RegistrationWorker · ingestion]
     Resolver[CanonicalEntityResolver]
+    CatalogEdit[AdminCatalogUpdate DTO]
     Repo[Timescale repositories\ncatalog · stock data · documents]
     Provider[Provider adapters\nUpstox · news · exchange Bhavcopy]
     Scoped[ScopedMarketProvider\nper-user request credential]
@@ -26,6 +27,7 @@ flowchart TB
     SQL[(TimescaleDB)]
     Redis[(Redis)]
     API --> App
+    API -->|internal service credential| Repo
     API --> Scoped
     App --> Resolver
     App --> Provider
@@ -37,17 +39,27 @@ flowchart TB
     Publisher --> Redis
     Worker[Worker process] --> App
     Scheduler[Persistent scheduler process] --> App
+    CatalogEdit --> API
 ```
 
 The scheduled worker and API are separate processes. The scheduler owns durable
 cadence and single-flight dispatch; the worker performs registration and ingestion.
 Provider HTTP credentials and retry/timeout behavior stay inside provider adapters.
 
-## OOP class diagram
+## OOP LLD class diagram
 
 ```mermaid
 classDiagram
     class Settings
+    class DataApiRoutes {
+      <<FastAPI route handlers>>
+      +update_catalog_entity(kind, entity_id, request)
+    }
+    class AdminCatalogUpdate {
+      <<request DTO>>
+      +changes: dict
+      +reason: str
+    }
     class StockDataService {
       +list_stocks(query, cursor, limit)
       +stock(ticker, exchange)
@@ -98,8 +110,17 @@ classDiagram
     class DataRepository {
       +create_job(request)
       +commit_company(job, bundle)
+      +update_catalog_entity(kind, entity_id, changes)
       +claim_outbox()
       +publish_outbox(publisher)
+    }
+    class EntityCatalogVersion {
+      <<append-only SQL row>>
+      +kind
+      +entity_id
+      +revision
+      +payload
+      +valid_from
     }
     class StockDataRepository {
       +search_instruments(query, cursor, limit)
@@ -135,6 +156,9 @@ classDiagram
     DataRepository --> RedisPublisher : transactional outbox relay
     NewsFetchService --> NewsProviderAdapter
     PersistentSchedule --> NewsFetchService
+    DataApiRoutes --> AdminCatalogUpdate
+    DataApiRoutes --> DataRepository
+    DataRepository --> EntityCatalogVersion : appends
 ```
 
 ## Storage and flow
@@ -147,6 +171,11 @@ classDiagram
   stock IDs are rejected instead of inventing new canonical identities.
 - A registration transaction commits SQL records and its outbox row together.
   The separate worker relays outbox records to Redis for StockGraph projection.
+- Developer catalog edits validate editable narrative fields and canonical
+  commodity references, append an `entity_catalog_versions` row, update the
+  current catalog payload, and enqueue `registry.updated` in one transaction.
+  The graph worker projects that revision and versions changed curated exposure
+  links; the graph store is never edited around its SQL source of truth.
 - Personal market-data requests use an ephemeral `CredentialContext`; they are
   never used for scheduled/shared ingestion or written into shared historical data.
 

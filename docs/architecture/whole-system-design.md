@@ -12,7 +12,7 @@ flowchart LR
     User[Browser or API client]
     LocalMCP[Local stdio stockgraph-mcp]
     ExternalAgent[Separately hosted agents]
-    AgentTemplate[Agents template\nhealth only; disabled]
+    AgentWorker[LangGraph agent worker\nopt-in developer pilot]
 
     Platform[Platform API :8002\naccounts · RBAC · plans · jobs]
     PlatformWorker[Platform worker\noutbox · monitor scheduling]
@@ -30,6 +30,7 @@ flowchart LR
     User -->|Bearer session| Platform
     LocalMCP -->|Platform REST with user token| Platform
     ExternalAgent -->|X-Agent-Key + X-Job-Lease| Platform
+    AgentWorker -->|X-Agent-Key + X-Job-Lease| Platform
     Platform --> PlatformDB
     PlatformWorker --> PlatformDB
     PlatformWorker <--> Redis
@@ -53,8 +54,8 @@ flowchart LR
     GraphAPI -->|on-demand market data| DataAPI
 ```
 
-The Agents template is intentionally isolated in the diagram: it has no runtime
-connection to Platform. It is omitted from ordinary Compose startup.
+The agent worker is omitted from ordinary Compose startup. Its Platform calls
+are scoped by a machine key and a per-job lease.
 
 ## Responsibility and data flow
 
@@ -63,7 +64,7 @@ connection to Platform. It is omitted from ordinary Compose startup.
 | Platform | Accounts, roles, plans, active stocks, quotas, contributions, sessions, broker credentials, jobs and alerts | Data and Graph internal APIs | Platform PostgreSQL, Redis streams |
 | Data | Canonical SQL instrument registry, source payloads, market series, documents and ingestion runs | Upstox/exchange/news providers; Platform-scoped credential headers for on-demand data | TimescaleDB, Redis streams |
 | StockGraph | Canonical graph projection, exposures, news impacts/correlations, professional graph evidence and vector indexes | Data API and both Redis streams | FalkorDB, Redis coordination |
-| Agents template | No domain records | Nothing at runtime | Health response only |
+| Agents worker | In-memory LangGraph job state | Leased Platform APIs and configured model provider | Validated Platform job results |
 
 Numbers and source payloads stay in SQL. FalkorDB stores entities, relationships,
 text evidence and vectors; graph numeric context is fetched from Data when needed.
@@ -122,6 +123,40 @@ sequenceDiagram
     User->>P: Read authorized result / alerts
 ```
 
+### Developer administration and graph changes
+
+```mermaid
+sequenceDiagram
+    actor Developer
+    participant P as Platform API
+    participant DB as Platform PostgreSQL
+    participant D as Data API
+    participant SQL as TimescaleDB
+    participant R as Redis Streams
+    participant W as StockGraph worker
+    participant G as StockGraph API
+    participant F as FalkorDB
+    Developer->>P: PATCH user roles, verification, plan or status
+    P->>DB: Update account and append admin audit
+    Developer->>P: PATCH canonical graph entity description
+    P->>D: Internal catalog update with reason
+    D->>SQL: Append entity version and outbox event in one transaction
+    P->>DB: Audit the edited fields and returned revision
+    D->>R: Publish registry.updated event
+    R->>W: Deliver canonical change
+    W->>F: Project node and version curated relationship changes
+    Developer->>P: POST / PUT / DELETE developer graph link
+    P->>G: Internal developer-scoped graph operation
+    G->>F: Mutate DEVELOPER_LINK under graph-writer lease
+    G-->>P: Updated link and retained edit history
+    P->>DB: Append admin audit
+```
+
+Canonical catalog changes stay owned by Data and reach FalkorDB through the
+outbox. Developer-created links use the protected StockGraph mutation API and
+appear in paginated stock context. Public account requests cannot set developer
+status; it belongs to the environment-managed Platform identity.
+
 Authorization is checked again at job claim, context retrieval and completion.
 Professional graph evidence is filtered by StockGraph before pagination; SQL
 professional sources are queried only for a currently permitted job. Platform
@@ -145,6 +180,6 @@ stores results with a required plan so existing outputs follow current access.
 
 ## Deferred pieces
 
-The browser frontend, payments (provider undecided), live order execution, a
-concrete agent implementation and remote HTTP MCP gateways are not part of the deployed design.
+Payments (provider undecided), live order execution, and remote HTTP MCP gateways
+are not part of the deployed design. The agent implementation remains an opt-in pilot.
 The existing local stdio MCP tools call Platform's authenticated REST APIs.

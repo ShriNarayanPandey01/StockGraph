@@ -1,7 +1,5 @@
-# Future handlers
+# Agent handlers
 
-Add future research, discovery and monitoring implementations here after their
-behavior is specified. Subclass `Agent` and register handlers explicitly.
-
-No concrete handlers are included. The service currently has no job-consumption
-loop, scheduler, model integration, scraping or trading capabilities.
+The registered research, discovery, and monitoring workflows live in the
+package's `workflows.py`. Additional handlers must use scoped Platform tools,
+respect leases and budgets, and register explicitly.

@@ -19,7 +19,6 @@ def test_platform_secrets_are_not_inherited_by_the_worker_and_template_is_opt_in
         "PLATFORM_AGENT_SERVICE_KEY",
         "DOCUMENT_INTERNAL_API_KEY",
         "MARKETGRAPH_INTERNAL_SERVICE_KEY",
-        "PLATFORM_SMTP_PASSWORD",
     }
     assert api_only <= api_environment.keys()
     assert not api_only.intersection(worker_environment)

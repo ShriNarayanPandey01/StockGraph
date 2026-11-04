@@ -20,6 +20,7 @@ ENTITY_FIELDS = {
     "ticker",
     "isin",
     "name",
+    "short_name",
     "aliases",
     "sector",
     "business_summary",
@@ -31,6 +32,7 @@ ENTITY_FIELDS = {
     "description",
     "why_it_moves",
     "equity_transmission",
+    "default_scope",
     "unit",
     "related_ids",
     "related_rationale",
@@ -122,10 +124,25 @@ class GraphRepository(NewsReconciliation, FalkorGraphRAGRepository):
             if isinstance(v, (str, bool))
             or (isinstance(v, list) and all(isinstance(item, str) for item in v))
         }
+        if revision == 1:
+            effective_ts = 0
+        elif current:
+            previous_effective_ts = int(
+                current.get("registry_effective_ts", current.get("registry_event_ts", 0))
+            )
+            effective_ts = (
+                max(event_ts, previous_effective_ts + 1)
+                if int(current.get("revision", 0)) < revision
+                else previous_effective_ts
+            )
+        else:
+            effective_ts = event_ts
         props = {
             **primitive,
             "profile_json": json.dumps(safe),
             "revision": revision,
+            "registry_event_ts": event_ts,
+            "registry_effective_ts": effective_ts,
             "state_hash": state_hash,
             "processing_state": "graph_processing",
         }
@@ -134,7 +151,12 @@ class GraphRepository(NewsReconciliation, FalkorGraphRAGRepository):
             {"id": entity_id, "props": props},
         )
         self.ensure_macro_baseline()
-        self._curated_links(kind, entity_id, safe)
+        self._curated_links(
+            kind,
+            entity_id,
+            safe,
+            valid_from_ts=effective_ts,
+        )
         return True
 
     def _rotate_macro(
@@ -220,27 +242,55 @@ class GraphRepository(NewsReconciliation, FalkorGraphRAGRepository):
             {},
         )
 
-    def _curated_links(self, kind: str, entity_id: str, entity: dict) -> None:
+    def _curated_links(
+        self, kind: str, entity_id: str, entity: dict, valid_from_ts: int = 0
+    ) -> None:
         if kind == "Stock":
-            for target in entity.get("exposures", []):
+            targets = list(dict.fromkeys(entity.get("exposures", [])))
+            desired = [
+                f"registry:EXPOSED_TO:{entity_id}:{target}:{valid_from_ts}"
+                for target in targets
+            ]
+            if valid_from_ts > 0:
+                self._run(
+                    "MATCH (s:Stock {ticker:$id})-[r:EXPOSED_TO]->() "
+                    "WHERE r.inferred_by='registry' AND coalesce(r.is_latest,true) "
+                    "AND NOT (r.edge_id IN $desired) "
+                    "SET r.valid_to_ts=$valid_to,r.is_latest=false RETURN count(r)",
+                    {"id": entity_id, "desired": desired, "valid_to": valid_from_ts - 1},
+                )
+            for target in targets:
                 self.merge_ontology_edge(
                     entity_id,
                     "EXPOSED_TO",
                     target,
                     1.0,
                     "Operator-curated stock exposure",
-                    valid_from_ts=0,
+                    valid_from_ts=valid_from_ts,
                     inferred_by="registry",
                 )
         if kind == "Commodity":
-            for target in entity.get("related_ids", []):
+            targets = list(dict.fromkeys(entity.get("related_ids", [])))
+            desired = [
+                f"registry:RELATED_TO:{entity_id}:{target}:{valid_from_ts}"
+                for target in targets
+            ]
+            if valid_from_ts > 0:
+                self._run(
+                    "MATCH (c:Commodity {id:$id})-[r:RELATED_TO]->() "
+                    "WHERE r.inferred_by='registry' AND coalesce(r.is_latest,true) "
+                    "AND NOT (r.edge_id IN $desired) "
+                    "SET r.valid_to_ts=$valid_to,r.is_latest=false RETURN count(r)",
+                    {"id": entity_id, "desired": desired, "valid_to": valid_from_ts - 1},
+                )
+            for target in targets:
                 self.merge_ontology_edge(
                     entity_id,
                     "RELATED_TO",
                     target,
                     1.0,
                     entity.get("related_rationale") or "Operator-curated commodity linkage",
-                    valid_from_ts=0,
+                    valid_from_ts=valid_from_ts,
                     inferred_by="registry",
                 )
             # Bootstrap/API events can arrive before an outgoing target exists.
@@ -287,7 +337,14 @@ class GraphRepository(NewsReconciliation, FalkorGraphRAGRepository):
         catalog = self.catalog()
         for kind in ("Stock", "Commodity"):
             for entity in catalog[kind]:
-                self._curated_links(kind, entity[KINDS[kind]], entity)
+                revision = int(entity.get("revision", 1))
+                event_ts = int(entity.get("registry_effective_ts", entity.get("registry_event_ts", 0)))
+                self._curated_links(
+                    kind,
+                    entity[KINDS[kind]],
+                    entity,
+                    valid_from_ts=event_ts if revision > 1 else 0,
+                )
         self.ensure_macro_baseline()
 
     def mark_entity_failed(self, kind: str, entity_id: str) -> None:
@@ -369,6 +426,86 @@ class GraphRepository(NewsReconciliation, FalkorGraphRAGRepository):
         )
         return bool(rows)
 
+    def list_developer_edges(self, limit: int = 100, offset: int = 0) -> list[dict[str, Any]]:
+        """Read auditable developer links without exposing embeddings or raw Cypher."""
+        take = min(500, max(1, int(limit)))
+        skip = max(0, int(offset))
+        rows = self._run(
+            "MATCH (source)-[r:DEVELOPER_LINK]->(target) "
+            "RETURN labels(source),properties(source),properties(r),labels(target),properties(target) "
+            f"ORDER BY r.event_ts DESC,r.edge_id SKIP {skip} LIMIT {take}",
+            {},
+        )
+        output = []
+        for row in rows:
+            values = list(row.values()) if isinstance(row, dict) else list(row)
+            source_labels, source, edge, target_labels, target = values
+            source, edge, target = dict(source), dict(edge), dict(target)
+            metadata = json.loads(edge.get("metadata_json") or "{}")
+            output.append({
+                "edge_id": edge.get("edge_id"),
+                "source": {"kind": next(iter(source_labels), "Unknown"),
+                           "id": source.get("ticker") or source.get("id")},
+                "target": {"kind": next(iter(target_labels), "Unknown"),
+                           "id": target.get("ticker") or target.get("id")},
+                "relation": edge.get("relation"),
+                "rationale": edge.get("rationale"),
+                "actor": edge.get("actor"),
+                "confidence": edge.get("confidence"),
+                "event_ts": edge.get("event_ts"),
+                "metadata": metadata,
+                "history": json.loads(edge.get("history_json") or "[]"),
+            })
+        return output
+
+    def update_developer_edge(
+        self, edge_id: str, *, relation: str, rationale: str, actor: str,
+        confidence: float | None, metadata: dict[str, Any],
+    ) -> dict[str, Any] | None:
+        """Update a developer link and retain the previous editable values."""
+        rows = self._run(
+            "MATCH ()-[r:DEVELOPER_LINK {edge_id:$edge_id}]->() RETURN properties(r)",
+            {"edge_id": edge_id},
+        )
+        if not rows:
+            return None
+        previous = dict(first(rows[0]))
+        history = json.loads(previous.get("history_json") or "[]")
+        history.append({
+            "relation": previous.get("relation"),
+            "rationale": previous.get("rationale"),
+            "actor": previous.get("actor"),
+            "confidence": previous.get("confidence"),
+            "metadata_json": previous.get("metadata_json", "{}"),
+            "changed_at": int(time.time()),
+        })
+        history = history[-50:]
+        values = {
+            "relation": relation,
+            "rationale": rationale,
+            "actor": actor,
+            "confidence": confidence,
+            "metadata_json": json.dumps(metadata, sort_keys=True, default=str),
+            "history_json": json.dumps(history, sort_keys=True, default=str),
+            "updated_at_ts": int(time.time()),
+        }
+        changed = self._run(
+            "MATCH ()-[r:DEVELOPER_LINK {edge_id:$edge_id}]->() SET r += $values "
+            "RETURN r.edge_id",
+            {"edge_id": edge_id, "values": values},
+        )
+        if not changed:
+            return None
+        return {
+            "edge_id": edge_id,
+            "relation": relation,
+            "rationale": rationale,
+            "actor": actor,
+            "confidence": confidence,
+            "metadata": metadata,
+            "history": history,
+        }
+
     def historical_news(self, start_ts: int, offset: int = 0, limit: int = 100) -> list[dict]:
         offset, limit = max(0, int(offset)), min(200, max(1, int(limit)))
         rows = self._run(
@@ -381,6 +518,96 @@ class GraphRepository(NewsReconciliation, FalkorGraphRAGRepository):
     def find_news(self, news_id: str) -> dict | None:
         rows = self._run("MATCH (n:NewsEvent {id:$id}) RETURN properties(n)", {"id": news_id})
         return dict(first(rows[0])) if rows else None
+
+    def agent_candidates(self, tickers: list[str], as_of_ts: int) -> dict:
+        """Bounded canonical recent events, including supported indirect paths."""
+        if not tickers:
+            return {'items': [], 'truncated': False}
+        params = {'tickers': tickers, 'start': as_of_ts - 72 * 3600, 'end': as_of_ts,
+                  'confidence': settings.ontology_min_confidence}
+        direct = self._run(
+            "MATCH (n:NewsEvent)-[r:DIRECTLY_IMPACTS|INDIRECTLY_IMPACTS]->(s:Stock) "
+            "WHERE s.ticker IN $tickers AND n.event_ts >= $start AND n.event_ts <= $end "
+            "AND coalesce(r.confidence,0) >= $confidence AND NOT (n)-[:DUPLICATE_OF]->() "
+            "RETURN s.ticker,properties(n),type(r),properties(r) "
+            "ORDER BY n.event_ts DESC,n.id,s.ticker LIMIT 201", params)
+        indirect = self._run(
+            "MATCH (s:Stock)-[exp:EXPOSED_TO|SENSITIVE_TO_MACRO|BELONGS_TO|SUPPLIES_TO|COMPETES_WITH]->(t)"
+            "<-[r:SHOCKS|ALTERS_MACRO|IMPACTS_SECTOR]-(n:NewsEvent) "
+            "WHERE s.ticker IN $tickers AND n.event_ts >= $start AND n.event_ts <= $end "
+            "AND coalesce(exp.valid_from_ts,0) <= $end AND coalesce(exp.valid_to_ts,9999999999) >= $start "
+            "AND coalesce(exp.confidence,0) >= $confidence AND coalesce(r.confidence,0) >= $confidence "
+            "AND NOT (n)-[:DUPLICATE_OF]->() "
+            "RETURN s.ticker,properties(n),type(r),properties(r),type(exp),properties(exp),labels(t)[0],properties(t) "
+            "ORDER BY n.event_ts DESC,n.id,s.ticker LIMIT 201", params)
+        candidates = {}
+        for path_kind, rows in (('direct', direct[:200]), ('indirect', indirect[:200])):
+            for row in rows:
+                ticker, news = str(row[0]), public_props(dict(row[1] or {}))
+                if not news.get('id') or not news.get('event_ts'):
+                    continue
+                quote = '\n'.join(str(news.get(key) or '') for key in ('headline', 'summary', 'body', 'text')).strip()[:50000]
+                if not quote:
+                    continue
+                version_body = {'kind': 'news', 'id': str(news['id']), 'text': quote,
+                                'ticker': ticker, 'locator': ''}
+                material = hashlib.sha256(json.dumps(version_body, sort_keys=True, separators=(',', ':'),
+                                                      default=str).encode()).hexdigest()
+                actual_path = 'direct' if path_kind == 'direct' and row[2] == 'DIRECTLY_IMPACTS' else 'indirect'
+                item = {'ticker': ticker, 'event_id': str(news['id']),
+                        'event_ts': int(news['event_ts']), 'headline': news.get('headline', ''),
+                        'source': news.get('source', ''), 'category': news.get('category', ''),
+                        'path_kind': actual_path, 'material_version': material}
+                key = (ticker, item['event_id'])
+                if key not in candidates or (actual_path == 'direct' and candidates[key]['path_kind'] != 'direct'):
+                    candidates[key] = item
+
+        def sort_key(item):
+            source = str(item['source']).upper()
+            category = str(item['category']).upper()
+            priority = 0 if category == 'REG30' or 'REG30' in source else 1 if 'BSE' in source else 2 if 'NSE' in source else 3
+            return (priority, 0 if item['path_kind'] == 'direct' else 1,
+                    -item['event_ts'], item['event_id'], item['ticker'])
+
+        items = sorted(candidates.values(), key=sort_key)
+        return {'items': items[:200], 'truncated': len(direct) > 200 or len(indirect) > 200 or len(items) > 200}
+
+    def exploration_neighbors(
+        self, frontier: list[str], start_ts: int, end_ts: int, limit: int = 1000,
+    ) -> list:
+        """One breadth-first layer, preserving edge direction and research guards.
+
+        A cash graph hub can have thousands of neighbors, so every layer has a
+        deterministic result cap and a lookahead row. No arbitrary Cypher depth
+        or unrestricted relationship traversal is accepted from the client.
+        """
+        take = min(1000, max(1, int(limit))) + 1
+        kinds = ["Stock", "Commodity", "MacroFactor", "Sector", "NewsEvent"]
+        node_checks = []
+        for alias in ("a", "b"):
+            node_checks.append(
+                f"labels({alias})[0] IN $kinds "
+                f"AND coalesce({alias}.valid_from_ts,0)<=$end "
+                f"AND coalesce({alias}.valid_to_ts,9999999999)>=$start "
+                f"AND (NOT ({alias}:NewsEvent) OR "
+                f"({alias}.event_ts >= $start AND {alias}.event_ts <= $end "
+                f"AND NOT ({alias})-[:DUPLICATE_OF]->()))"
+            )
+        return self._run(
+            "MATCH (a)-[r:EXPOSED_TO|SENSITIVE_TO_MACRO|BELONGS_TO|SUPPLIES_TO|COMPETES_WITH|RELATED_TO|"
+            "DIRECTLY_IMPACTS|INDIRECTLY_IMPACTS|SHOCKS|ALTERS_MACRO|IMPACTS_SECTOR|CORRELATED_WITH|DEVELOPER_LINK]-(b) "
+            "WHERE (labels(a)[0]+':'+coalesce(a.ticker,a.id)) IN $frontier "
+            f"AND {' AND '.join(node_checks)} "
+            "AND coalesce(r.valid_from_ts,0)<=$end AND coalesce(r.valid_to_ts,9999999999)>=$start "
+            "AND (type(r)='DEVELOPER_LINK' OR coalesce(r.confidence,0)>=$confidence) "
+            "AND (NOT (type(r) IN ['CORRELATED_WITH','DEVELOPER_LINK']) "
+            "OR (r.event_ts >= $start AND r.event_ts <= $end)) "
+            "RETURN DISTINCT id(r),labels(startNode(r))[0],properties(startNode(r)),type(r),properties(r),"
+            "labels(endNode(r))[0],properties(endNode(r)) "
+            f"ORDER BY id(r) LIMIT {take}",
+            {"frontier": frontier, "start": start_ts, "end": end_ts,
+             "confidence": settings.ontology_min_confidence, "kinds": kinds},
+        )
 
     def context_page(
         self, ticker: str, start_ts: int, end_ts: int, offset: int, limit: int
@@ -421,7 +648,20 @@ class GraphRepository(NewsReconciliation, FalkorGraphRAGRepository):
             f"ORDER BY n.event_ts DESC,n.id,coalesce(t.id,t.ticker),exp.valid_from_ts SKIP {skip} LIMIT {take}",
             params,
         )
-        return {"ontology": ontology, "direct": direct, "indirect": indirect}
+        developer_links = self._run(
+            "MATCH (s:Stock {ticker:$ticker})-[r:DEVELOPER_LINK]-(t) "
+            "WHERE r.event_ts >= $start AND r.event_ts <= $end "
+            "RETURN CASE WHEN startNode(r)=s THEN 'outgoing' ELSE 'incoming' END, "
+            "labels(t)[0],properties(t),properties(r) "
+            f"ORDER BY r.event_ts DESC,r.edge_id SKIP {skip} LIMIT {take}",
+            params,
+        )
+        return {
+            "ontology": ontology,
+            "direct": direct,
+            "indirect": indirect,
+            "developer_links": developer_links,
+        }
 
     def public_market_graph_data(self, start_ts: int, end_ts: int) -> dict[str, list[dict]]:
         """Read the bounded source rows used to compose the public market preview.

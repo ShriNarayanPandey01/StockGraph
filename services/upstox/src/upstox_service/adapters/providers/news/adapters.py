@@ -678,6 +678,7 @@ class MarketauxNewsAdapter(NewsProviderAdapter):
             "filter_entities": "true",
             "published_after": since.strftime("%Y-%m-%dT%H:%M:%S"),
             "limit": str(max(1, min(limit, self.page_size))),
+            "page": str(page),
         }
         return f"{self.base_url}?{urlencode(params)}"
 

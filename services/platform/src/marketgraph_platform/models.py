@@ -16,7 +16,6 @@ class Principal(Input):
     name: str
     professional_verified: bool = False
     email: str | None = None
-    email_verified: bool = False
     is_developer: bool = False
     disabled: bool = False
     roles: list[Literal["USER", "PROFESSIONAL", "REVIEWER"]] = Field(default_factory=lambda: ["USER"])

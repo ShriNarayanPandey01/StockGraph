@@ -30,7 +30,7 @@ async def current_user(request: Request, authorization: str | None = Header(defa
     if isinstance(principal.get("roles"), str):
         principal["roles"] = json.loads(principal["roles"])
     user = Principal.model_validate(principal)
-    if user.disabled or (user.email is not None and not user.email_verified):
+    if user.disabled:
         raise HTTPException(401, "Valid bearer token required", headers={"WWW-Authenticate": "Bearer"})
     if user.plan_expires_at is not None and user.plan_expires_at <= datetime.now(UTC) and not user.is_developer:
         user = user.model_copy(update={"plan": "FREE"})

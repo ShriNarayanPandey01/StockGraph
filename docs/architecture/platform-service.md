@@ -20,12 +20,13 @@ it does not execute agent jobs.
 ```mermaid
 flowchart TB
     Routes[REST routers\naccounts · admin · policy · connections · research]
-    Auth[Bearer auth + Accounts\nArgon2id · OTP · SMTP]
+    Auth[Bearer auth + Accounts\nArgon2id]
     Entitlements[Entitlements + Access\nroles · Free/Pro · selections]
     Contributions[Repository\nversions · independent review · outbox]
     Broker[BrokerConnections + BrokerVault\nencrypted token handling]
     Jobs[agent_repository\nscoped jobs · lease · evidence · alert quota]
     Clients[CanonicalClient + scoped Data/Graph callers]
+    Admin[Developer admin router\nusers · plans · catalog · graph edits · audit]
     Worker[Platform worker\noutbox relay · monitor scheduling]
     DB[(Ordinary PostgreSQL)]
     Redis[(Redis streams)]
@@ -38,6 +39,7 @@ flowchart TB
     Routes --> Broker
     Routes --> Jobs
     Routes --> Clients
+    Routes --> Admin
     Auth --> DB
     Entitlements --> DB
     Contributions --> DB
@@ -48,10 +50,13 @@ flowchart TB
     Contributions --> Redis
     Clients --> Data
     Clients --> Graph
+    Admin --> DB
+    Admin -->|versioned catalog update| Data
+    Admin -->|developer-scoped graph edit/context| Graph
     Agent -->|machine key + job lease| Routes
 ```
 
-## OOP class diagram
+## OOP LLD class diagram
 
 ```mermaid
 classDiagram
@@ -69,6 +74,8 @@ classDiagram
       +login(email, password)
       +change_password(user, current, next)
       +bootstrap_developer()
+      +update_user(actor, user_id, changes)
+      +revoke_sessions(actor, user_id)
     }
     class Repository {
       +authenticate(token_digest)
@@ -106,8 +113,40 @@ classDiagram
     class CanonicalClient {
       +get(path, params, headers)
       +post_internal(path, payload, headers)
+      +patch_internal(path, payload, headers)
       +validate_ticker(ticker)
       +validate_citations(content)
+    }
+    class DeveloperAdminRouter {
+      <<FastAPI router builder>>
+      +update_user(user_id, changes)
+      +update_plan(plan, policy)
+      +read_user_records(owner_id, resource, pagination)
+      +read_graph_context(ticker, window, pagination)
+      +update_catalog_entity(kind, entity_id, changes, reason)
+      +create_or_update_or_delete_link(edge_id, values)
+      +read_audit(limit, offset)
+    }
+    class CatalogEdit {
+      <<request DTO>>
+      +changes: dict
+      +reason: str
+    }
+    class DeveloperEdgeEdit {
+      <<request DTO>>
+      +relation: str
+      +rationale: str
+      +confidence: float
+      +metadata: dict
+      +reason: str
+    }
+    class GraphAdminProxy {
+      <<module function>>
+      +request(method, path, body, params)
+    }
+    class AdminAudit {
+      <<module function>>
+      +audit_admin(connection, actor, action, target, details)
     }
     class AgentRepositoryModule {
       <<module functions>>
@@ -140,6 +179,12 @@ classDiagram
     AgentWorkerContract --> AgentRepositoryModule
     WorkerModule --> Repository
     WorkerModule --> Settings
+    DeveloperAdminRouter --> Accounts
+    DeveloperAdminRouter --> CanonicalClient
+    DeveloperAdminRouter --> GraphAdminProxy
+    DeveloperAdminRouter --> AdminAudit
+    DeveloperAdminRouter --> CatalogEdit
+    DeveloperAdminRouter --> DeveloperEdgeEdit
 ```
 
 ## Key decisions and sequences
@@ -158,6 +203,13 @@ The same policy is rechecked when jobs are submitted, claimed, given evidence,
 and completed. Professional records are kept in SQL with immutable versions,
 review decisions, citations, validity and outbox events. Non-developer authors
 require an independent reviewer; developer self-approval is permitted and logged.
+
+The environment-managed developer identity is the only admin principal. It can
+change user roles and professional verification, assign Free/Pro plans, inspect
+other users' supported records, revoke sessions and use supported application
+routes across ownership boundaries. Canonical graph edits are proxied to Data and
+use SQL history plus the outbox; manual graph-link edits are proxied to StockGraph.
+Administrative changes are recorded in the Platform audit table.
 
 ### Broker connection
 
@@ -201,5 +253,5 @@ policy live in ordinary PostgreSQL tables alongside contributions, job state,
 audits, sessions, selection and encrypted credentials. Back up Platform data
 before applying migrations. Restore tooling must include every migrated table.
 
-SMTP-dependent public signup, verification and recovery return a retryable
-configuration error until SMTP is set. Developer login is independent of SMTP.
+Public signup creates a Free account that can log in immediately. Authenticated
+users can change their password by providing the current password.

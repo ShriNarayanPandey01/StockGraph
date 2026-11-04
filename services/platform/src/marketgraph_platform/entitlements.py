@@ -7,7 +7,7 @@ from marketgraph_platform.models import Principal
 from marketgraph_platform.policy import access_policy, effective_plan
 from marketgraph_platform.repository import PlatformError
 
-USER_FIELDS = "id,name,email,email_verified,professional_verified,is_developer,disabled,roles,plan,plan_expires_at,active_selection_initialized"
+USER_FIELDS = "id,name,email,professional_verified,is_developer,disabled,roles,plan,plan_expires_at,active_selection_initialized"
 
 
 def decode(value):

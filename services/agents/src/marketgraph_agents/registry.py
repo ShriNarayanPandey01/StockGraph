@@ -1,8 +1,10 @@
-"""Empty, read-only registry; future handlers will be registered explicitly."""
+"""Explicit, read-only registry of supported LangGraph job handlers."""
 
-from collections.abc import Mapping
+from collections.abc import Callable, Mapping
 from types import MappingProxyType
 
-from marketgraph_agents.agent import Agent
+from marketgraph_agents.workflows import build_graph
 
-AGENTS: Mapping[str, type[Agent]] = MappingProxyType({})
+AGENTS: Mapping[str, Callable] = MappingProxyType({
+    'chat': build_graph, 'discovery': build_graph, 'monitor': build_graph,
+})

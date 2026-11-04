@@ -3,19 +3,20 @@
 This document supersedes the unrestricted-access policy in the original Phase 1
 blueprint. Data owns SQL/source ingestion, Graph owns FalkorDB/LLM work, and
 Platform owns accounts, application permissions and its separate ordinary
-PostgreSQL database. `services/agents/` is a fourth workspace package containing
-only a future-agent scaffold. Payments are disabled and no future provider has
-been selected. Frontend work, order execution and remote HTTP MCP services remain deferred.
+PostgreSQL database. `services/agents/` contains the opt-in LangGraph worker for
+the developer pilot. Payments are disabled and no future provider has been
+selected. Order execution and remote HTTP MCP services remain deferred.
 
 ## Accounts and developer access
 
-Public signup creates a Free account with the User role. Email verification,
-password recovery and credential attachment use one-time emailed codes with a
-15-minute expiry and five attempts. SMTP must be configured for mail-dependent
-operations. Signup, login and resend operations have separate abuse limits;
-recovery responses do not disclose whether an account exists. Passwords use
-Argon2id. Login creates an opaque bearer session with a 12-hour default lifetime;
-only its digest is stored. Existing operator-issued tokens remain supported.
+Public signup creates an immediately usable Free account with the User role.
+Signup and login have separate abuse limits, and signup returns the same response
+for existing addresses. Passwords use Argon2id. Login creates an opaque bearer
+session with a 12-hour default lifetime; only its digest is stored. Existing
+operator-issued tokens remain supported. Authenticated users can change their
+password by providing the current password. Signup does not prove ownership of
+an email address. Forgotten-password recovery is unavailable until a new
+provider-backed feature is built.
 
 The developer account is configured by `PLATFORM_ADMIN_NAME`,
 `PLATFORM_ADMIN_EMAIL` and `PLATFORM_ADMIN_PASSWORD`. Initialization is idempotent
@@ -23,14 +24,23 @@ and coordinated across replicas. Only this environment-managed identity is a
 developer; public payloads cannot select that role. Changing its environment
 credentials revokes its previous sessions. Local setup may use
 `admin@marketgraph.local` with a generated password stored only in ignored `.env`.
-Never commit or print that password. The developer can log in without SMTP.
+Never commit or print that password. The developer uses the same login endpoint.
 
 The developer has every supported application permission and access to users'
 application records. Developer operations bypass role, ownership, plan and
 per-user quota checks, including the independent-review restriction: developer
-self-approval is permitted and audited. Canonical entity validation, citation
-integrity, immutable version history and transaction checks still apply. Global
-provider/model budgets remain operating configuration.
+self-approval is permitted and audited. The developer can grant/remove the
+Professional and Reviewer roles, verify/revoke professional status, assign Free
+or Pro with an optional expiry, disable/restore users, revoke sessions, and edit
+versioned canonical graph descriptions and developer-created graph links.
+Canonical entity validation, citation integrity, immutable version history and
+transaction checks still apply. Global provider/model budgets remain operating
+configuration.
+
+Using the developer bearer session on existing authenticated Platform routes
+also grants access to other users' supported records and workflows. Ownership
+checks and plan limits are bypassed for the developer; record lifecycle rules,
+immutable evidence versions, leases and audit history remain enforced.
 
 Ordinary roles are combinable: User, Professional and Reviewer. The developer
 verifies professionals and assigns reviewers. Non-developer professional
@@ -70,6 +80,14 @@ delivery; caches distinguish evidence access. Revocation/downgrade affects new
 work and subsequent reads, including historical results containing premium
 evidence. Legacy results with uncertain provenance are restricted conservatively.
 The developer retains access to all history.
+
+Developer graph operations are available under `/api/v1/admin/graph`: catalog
+reads, versioned catalog edits, full paginated per-stock graph context (including
+professional evidence), and paginated create/read/update/delete operations for
+developer-created links. Catalog edits go through Data Service SQL versions and
+its graph outbox. Manual graph links keep edit history and appear in stock
+connection context. Provider, baseline and inferred edges continue through their
+own source/versioning flows.
 
 ## Optional Upstox connections
 
@@ -122,51 +140,33 @@ directly also need the internal service key in their environment.
 ## Configuration and rollout
 
 Set developer credentials, the internal service key and the broker encryption
-key in `.env`, never in source control. SMTP settings are `PLATFORM_SMTP_HOST`,
-`PLATFORM_SMTP_PORT`, `PLATFORM_SMTP_USERNAME`, `PLATFORM_SMTP_PASSWORD`,
-`PLATFORM_SMTP_FROM`, `PLATFORM_SMTP_STARTTLS`, `PLATFORM_SMTP_SSL` and
-`PLATFORM_SMTP_TIMEOUT_SECONDS`. Port 587 with STARTTLS is the default; implicit
-TLS can be configured with SSL instead. Do not enable both transport modes.
-Developer/SMTP/broker-vault secrets are passed only to `platform-api`, not its
-worker. Existing `UPSTOX_ANALYTICS_TOKEN` / `UPSTOX_AUTHTOKEN` compatibility remains.
-
-### Brevo SMTP: authorize the sending server's IP
-
-When Brevo's blocking of unknown IP addresses is enabled for SMTP keys, add the
-**public outbound IP address of every server running `platform-api`** under
-Brevo **Security > Authorized IPs** before sending email. This is the API server's
-internet-facing egress address, rather than the website user's IP, a Docker
-container's private address, or `127.0.0.1`. Local development and deployed API
-servers can use different outbound IPs; authorize each environment's addresses.
-Update the list if an address changes, including after an ISP change or a
-deployment that changes the server's egress addresses.
-
-To check the local container's current public outbound IP without sending email:
-
-```powershell
-docker compose exec -T platform-api python -c "import urllib.request; print(urllib.request.urlopen('https://api.ipify.org', timeout=10).read().decode())"
-```
-
-Removing the sending server's IP from the authorized list while blocking is
-enabled prevents SMTP email delivery, including verification and recovery codes.
-Brevo can report `525 5.7.1 Unauthorized IP address`; valid SMTP credentials alone
-do not resolve this error. See [Brevo's API and SMTP IP authorization guide](https://help.brevo.com/hc/en-us/articles/5740111683858-Authorize-and-block-IP-addresses-for-API-and-SMTP-security).
+key in `.env`, never in source control. Developer and broker-vault secrets are
+passed only to `platform-api`, not its worker. Existing
+`UPSTOX_ANALYTICS_TOKEN` / `UPSTOX_AUTHTOKEN` compatibility remains.
 
 Back up Platform data before numbered migrations and coordinate application
 rollout so internal clients and servers receive matching keys. Never rewrite an
 applied migration, recreate database containers to apply application changes, or
 delete volumes. Existing non-developer accounts become Free, retain verified
 professional authoring rights and require explicit active-stock initialization.
-Reviewer grants are explicit. Existing records remain stored; ineligible work
+Reviewer grants are explicit. Active records remain stored; ineligible work
 pauses/cancels, and current-month alerts count toward the Free allowance.
 
-`services/agents/` is excluded from ordinary Compose startup. To run its optional
-health-only scaffold, use `docker compose --profile agents-template up -d --build
-agents-template`; see [the template guide](../services/agents/README.md). Port 8005
-reports execution disabled and zero registered agents. No handlers, model calls,
-job-consumption loop, scheduler, database or broker access are implemented there.
-Existing external agents retain the leased Platform REST contract.
+Migration `006_remove_email_service.sql` drops the challenge table and
+`email_verified` column. During this rollout, back up the old schema, stop
+account writers, and purge pending accounts with email addresses before applying
+the migration. Preserve developer and email-less legacy accounts and admin audit
+history; revoke old professional identities through the outbox. Older Platform
+archives must be restored with the matching older application schema before
+running newer migrations.
+
+`services/agents/` is excluded from ordinary Compose startup. The optional
+`agents` profile runs the LangGraph worker after an operator configures its model,
+machine key, conservative rates, and budget; see [the agent guide](../services/agents/README.md).
+Its pilot claims developer-owned jobs only. The separate `agents-template` health
+process reports the registered handlers without consuming jobs. Existing external
+agents retain the version 1 leased Platform REST contract.
 
 Offline validation uses `uv run --all-packages pytest -q` and `uv run --all-packages
-ruff check services scripts tests`. Mock SMTP/provider operations; no real orders
+ruff check services scripts tests`. Mock provider operations; no real orders
 or removed integration-testing infrastructure are used.

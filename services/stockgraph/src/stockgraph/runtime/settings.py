@@ -1,5 +1,7 @@
 """Graph-only configuration. Deliberately has no relational database credentials."""
 
+from typing import Literal
+
 from pydantic import Field, SecretStr
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
@@ -13,7 +15,7 @@ class Settings(BaseSettings):
     falkor_graph_name: str = "stock_graph"
     redis_url: str = "redis://localhost:6380/0"
     data_service_url: str = "http://localhost:8001"
-    developer_graph_mutations_enabled: bool = False
+    developer_graph_mutations_enabled: bool = True
     app_timezone: str = "Asia/Kolkata"
     event_stream: str = "stockgraph:events:v1"
     event_consumer_group: str = "graph-v1"
@@ -26,8 +28,22 @@ class Settings(BaseSettings):
     public_graph_cache_ttl_seconds: int = Field(default=300, ge=1, le=3600)
     embedding_dimension: int = Field(default=1536, ge=1)
     embedding_model: str = "text-embedding-3-small"
+    gemini_api_key: SecretStr = Field(default=SecretStr(""), repr=False)
     llm_enabled: bool = False
+    # "legacy" preserves the previous LiteLLM model-string routing when this is
+    # unset. Explicit providers get their own credential and endpoint handling.
+    llm_provider: Literal[
+        "legacy", "baseten", "openai", "anthropic", "openrouter",
+        "openai_compatible", "litellm",
+    ] = "legacy"
+    llm_json_mode: Literal["auto", "json_object", "json_schema", "prompt"] = "auto"
     openai_api_key: SecretStr = Field(default=SecretStr(""), repr=False)
+    baseten_api_key: SecretStr = Field(default=SecretStr(""), repr=False)
+    baseten_api_base: str = "https://inference.baseten.co/v1"
+    anthropic_api_key: SecretStr = Field(default=SecretStr(""), repr=False)
+    openrouter_api_key: SecretStr = Field(default=SecretStr(""), repr=False)
+    llm_api_key: SecretStr = Field(default=SecretStr(""), repr=False)
+    llm_api_base: str = ""
     llm_chat_model: str = "gpt-4o-mini"
     llm_ontology_model: str = "gpt-4o"
     llm_max_tokens_per_call: int = Field(default=4000, ge=1024)

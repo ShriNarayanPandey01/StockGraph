@@ -375,10 +375,12 @@ def test_context_queries_use_temporal_overlap_confidence_and_literal_pagination(
     captured = []
     repo._run = lambda query, params: captured.append((query, params)) or []
     repo.context_page("STOCK0", 10, 20, 50, 50)
-    assert len(captured) == 3
+    assert len(captured) == 4
     assert all("SKIP 50 LIMIT 51" in query for query, _ in captured)
     assert "exp.valid_to_ts" in captured[0][0]
-    assert all("confidence" in query for query, _ in captured)
+    assert all("confidence" in query for query, _ in captured[:3])
+    assert "DEVELOPER_LINK" in captured[3][0]
+    assert "r.event_ts >= $start" in captured[3][0]
 
 
 def test_api_registration_returns_accepted_and_separate_processing_status():
@@ -622,7 +624,12 @@ def test_dotenv_api_key_is_passed_privately_to_llm_and_embeddings(monkeypatch):
     def completion(**kwargs):
         calls.append(kwargs)
         return SimpleNamespace(
-            choices=[SimpleNamespace(message=SimpleNamespace(content='{"impacts":[]}'))]
+            choices=[
+                SimpleNamespace(
+                    finish_reason="stop",
+                    message=SimpleNamespace(content='{"impacts":[]}'),
+                )
+            ]
         )
 
     def embedding(**kwargs):
@@ -636,6 +643,10 @@ def test_dotenv_api_key_is_passed_privately_to_llm_and_embeddings(monkeypatch):
 
     monkeypatch.setattr(providers, "count_tokens", lambda text, model=None: len(text.split()))
     secret = SecretStr("test-secret-never-log")
+    # Exercise the backward-compatible model-string route independently of
+    # the local .env's explicit Baseten selection.
+    monkeypatch.setattr(settings, "llm_provider", "legacy")
+    monkeypatch.setattr(settings, "llm_chat_model", "gpt-4o-mini")
     monkeypatch.setattr(settings, "openai_api_key", secret)
     monkeypatch.setattr(settings, "embedding_dimension", 2)
     LiteLLMChatProvider().complete_json("test", NewsImpactBatch)

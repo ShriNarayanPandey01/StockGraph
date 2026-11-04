@@ -1,6 +1,7 @@
 """Authenticated user workflows and leased integration with separately hosted agents."""
 
 import json
+import re
 import secrets
 from datetime import datetime
 from typing import Literal
@@ -53,8 +54,12 @@ class MonitorInput(Input):
     interval_seconds: int = Field(default=3600,ge=60,le=2592000)
 
 
+class MonitorStateInput(Input):
+    active: bool
+
+
 class Evidence(Input):
-    kind: Literal['news','professional','document','financial']
+    kind: Literal['news','professional','document','financial','graph']
     id: str = Field(min_length=1,max_length=100)
     locator: str | None = Field(default=None,max_length=300)
     quote: str = Field(min_length=1,max_length=2000)
@@ -85,8 +90,100 @@ class AgentResult(Input):
         return self
 
 
+class EvidenceV2(Evidence):
+    ticker: str = Field(pattern=r'^[A-Z0-9][A-Z0-9&_.-]{0,39}$')
+    material_version: str = Field(pattern=r'^[0-9a-f]{64}$')
+
+
+class OpportunityV2(Input):
+    ticker: str = Field(pattern=r'^[A-Z0-9][A-Z0-9&_.-]{0,39}$')
+    direction: Literal['BULLISH', 'BEARISH']
+    horizon_sessions: int = Field(ge=2, le=30)
+    title: str = Field(min_length=1, max_length=300)
+    thesis: str = Field(min_length=1, max_length=6000)
+    why_now: str = Field(min_length=1, max_length=3000)
+    risks: str = Field(min_length=1, max_length=3000)
+    invalidation: str = Field(min_length=1, max_length=3000)
+    catalyst: EvidenceV2
+    connections: list[EvidenceV2] = Field(min_length=1, max_length=6)
+    corroboration: list[EvidenceV2] = Field(min_length=1, max_length=20)
+    counter_evidence: list[EvidenceV2] = Field(default_factory=list, max_length=20)
+    material_change: bool = False
+    change_summary: str = Field(default='', max_length=3000)
+
+    @model_validator(mode='after')
+    def evidence_shape(self):
+        refs = [self.catalyst, *self.connections, *self.corroboration, *self.counter_evidence]
+        if any(ref.ticker != self.ticker for ref in refs):
+            raise ValueError('Opportunity evidence must refer to its stock')
+        if self.catalyst.kind != 'news' or any(ref.kind != 'graph' for ref in self.connections):
+            raise ValueError('A news catalyst and graph relationship path are required')
+        if not any(ref.kind != 'graph' and (ref.kind != 'news' or ref.id != self.catalyst.id)
+                   for ref in self.corroboration):
+            raise ValueError('A distinct corroborating source is required')
+        if self.material_change and not self.change_summary.strip():
+            raise ValueError('A material change requires an explanation')
+        price_level = re.compile(r'(?i)\b(?:entry(?:\s+(?:price|level))?|stop[ -]?loss|(?:price\s+target|target\s+price)|(?:buy|sell)\s+(?:at|near|above|below))\s*(?:at|near|above|below|of|is|:|=)?\s*(?:₹|rs\.?|inr)?\s*\d')
+        if any(price_level.search(value) for value in (self.title, self.thesis, self.why_now, self.risks, self.invalidation, self.change_summary)):
+            raise ValueError('Numerical trade entry, stop-loss, and target levels are not supported')
+        return self
+
+
+class AgentCoverage(Input):
+    as_of_ts: int = Field(ge=0)
+    candidates_total: int = Field(ge=0)
+    evaluated_tickers: list[str] = Field(default_factory=list, max_length=5)
+    evaluated_candidates: list[str] = Field(default_factory=list, max_length=200)
+    partial: bool = False
+    last_complete_ts: int | None = Field(default=None, ge=0)
+    next_ticker_offset: int = Field(default=0, ge=0, le=200)
+
+
+class ResearchClaimV2(Input):
+    text: str = Field(min_length=1, max_length=4000)
+    evidence: list[EvidenceV2] = Field(min_length=1, max_length=20)
+
+
+class AgentResultV2(Input):
+    contract_version: Literal[2] = 2
+    answer: str = Field(min_length=1, max_length=30000)
+    status: Literal['supported', 'no_opportunity', 'insufficient_evidence']
+    evidence: list[EvidenceV2] = Field(default_factory=list, max_length=100)
+    claims: list[ResearchClaimV2] = Field(default_factory=list, max_length=30)
+    opportunities: list[OpportunityV2] = Field(default_factory=list, max_length=3)
+    coverage: AgentCoverage | None = None
+    scope_note: str = Field(default='', max_length=500)
+    reported_tokens: int = Field(default=0, ge=0, le=1000000)
+
+    @model_validator(mode='after')
+    def supported_result(self):
+        if self.status == 'supported' and not (self.evidence or self.claims or self.opportunities):
+            raise ValueError('Supported results require evidence')
+        if self.status != 'supported' and self.opportunities:
+            raise ValueError('Only supported results may include opportunities')
+        return self
+
+
 class AgentFailure(Input):
     retryable: bool = True
+    reason: Literal['failure', 'budget_blocked'] = 'failure'
+
+
+class WorkerHeartbeatInput(Input):
+    worker_id: UUID
+    enabled: bool
+
+
+class ModelReservationInput(Input):
+    request_key: UUID
+    model: str = Field(min_length=1, max_length=300)
+    input_tokens: int = Field(gt=0, le=200000)
+    output_tokens: int = Field(gt=0, le=32000)
+
+
+class ModelSettlementInput(Input):
+    input_tokens: int = Field(ge=0, le=200000)
+    output_tokens: int = Field(ge=0, le=32000)
 
 
 def database(request):
@@ -153,10 +250,17 @@ def context_sources(ticker, graph, professional, financials):
         entries.append({'kind': 'professional', 'id': str(item['version_id']), 'ticker': ticker,
                         'source': item, 'quote_text': content['title'] + '\n' + content['body'],
                         'eligible_until': datetime.fromisoformat(content['expires_at'])})
+    for item in graph.get('edges', []):
+        rationale = item.get('rationale')
+        if item.get('id') and isinstance(rationale, str) and rationale.strip():
+            entries.append({'kind': 'graph', 'id': str(item['id']), 'ticker': ticker,
+                            'source': item, 'quote_text': rationale})
     for section in ('daily_metrics', 'quarterly_financials', 'statements'):
         for item in financials.get(section, [])[-200:]:
             # Numeric evidence without vendor provenance is not citeable.
-            if not item.get('vendor_id') or not item.get('vendor_as_of'):
+            vendor_source = item.get('vendor_id') and item.get('vendor_as_of')
+            filing_source = item.get('source_id') and item.get('source_as_of')
+            if not vendor_source and not filing_source:
                 continue
             text = json.dumps(item, sort_keys=True, default=str)
             entries.append({'kind': 'financial', 'id': fingerprint(item), 'ticker': ticker,
@@ -187,6 +291,43 @@ def build_agent_router(current_user):
         if item.get("required_plan", "PRO") == "PRO" and not access.allows("professional_evidence"):
             return {key: value for key, value in item.items()
                     if key not in ("result", "content", "evidence", "summary")} | {"restricted": True, "required_plan": "PRO"}
+        return item
+
+    async def current_evidence(request, refs):
+        for identity in {ref.get('id') for ref in refs if ref.get('kind') == 'professional'}:
+            try:
+                version_id = UUID(str(identity))
+            except ValueError:
+                return False
+            active = await database(request).fetchval(
+                'SELECT EXISTS(SELECT 1 FROM platform_contributions c '
+                'JOIN platform_contribution_versions v ON v.id=c.published_version_id '
+                'JOIN platform_users u ON u.id=c.author_id WHERE v.id=$1 AND c.retracted_at IS NULL '
+                'AND v.expires_at>now() AND u.professional_verified=true)', version_id)
+            if not active:
+                return False
+        return True
+
+    async def safe_readable(request, item, access):
+        item = readable(item, access)
+        if item.get('restricted'):
+            return item
+        result = item.get('result') or {}
+        refs = list(item.get('evidence') or []) + list(result.get('evidence') or [])
+        for claim in result.get('claims', []):
+            refs.extend(claim.get('evidence', []))
+        for alert in result.get('alerts', []):
+            refs.extend(alert.get('evidence', []))
+        opportunities = list(result.get('opportunities', []))
+        if item.get('opportunity'):
+            opportunities.append(item['opportunity'])
+        for opportunity in opportunities:
+            refs.extend([opportunity['catalyst'], *opportunity['connections'],
+                         *opportunity['corroboration'], *opportunity['counter_evidence']])
+        if not await current_evidence(request, refs):
+            item = {key: value for key, value in item.items()
+                    if key not in ('result', 'content', 'evidence', 'summary', 'opportunity')}
+            item['evidence_stale'] = True
         return item
 
     @router.get("/api/v1/watchlists")
@@ -226,6 +367,13 @@ def build_agent_router(current_user):
         return dict(await database(request).fetchrow(
             "INSERT INTO conversations(id,user_id,title) VALUES($1,$2,$3) RETURNING *", uuid4(),user.id,body.title))
 
+    @router.get("/api/v1/conversations")
+    async def conversations(request: Request, user=Depends(current_user), limit: int = Query(100, ge=1, le=500)):
+        rows = await database(request).fetch(
+            'SELECT id,user_id,title,created_at FROM conversations WHERE user_id=$1 OR $2 '
+            'ORDER BY created_at DESC,id DESC LIMIT $3', user.id, user.is_developer, limit)
+        return {'items': [dict(row) for row in rows]}
+
     @router.get("/api/v1/conversations/{conversation_id}/messages")
     async def messages(conversation_id: UUID, request: Request, user=Depends(current_user),
                        limit: int=Query(100, ge=1, le=500)):
@@ -234,7 +382,7 @@ def build_agent_router(current_user):
         rows = await database(request).fetch(
             "SELECT * FROM research_messages WHERE conversation_id=$1 ORDER BY created_at,id LIMIT $2",
             conversation_id, limit)
-        return {"items": [readable(unpack(row), access) for row in rows]}
+        return {"items": [await safe_readable(request, unpack(row), access) for row in rows]}
 
     async def submit(body, request, user, key, kind, conversation_id=None):
         access = await access_for(request, user)
@@ -269,10 +417,86 @@ def build_agent_router(current_user):
                    idempotency_key: str=Header(min_length=1, max_length=200)):
         return await submit(body, request, user, idempotency_key, "discovery")
 
+    @router.get("/api/v1/agent-jobs")
+    async def list_jobs(request: Request, user=Depends(current_user), limit: int = Query(25, ge=1, le=100)):
+        access = await access_for(request, user)
+        rows = await database(request).fetch(
+            'SELECT * FROM agent_jobs WHERE user_id=$1 OR $2 ORDER BY created_at DESC,id DESC LIMIT $3',
+            user.id, user.is_developer, limit)
+        return {'items': [await safe_readable(request, public_job(unpack(row)), access) for row in rows]}
+
     @router.get("/api/v1/agent-jobs/{job_id}")
     async def job_status(job_id: UUID, request: Request, user=Depends(current_user)):
         row = await record(request, "agent_jobs", job_id, user)
-        return readable(public_job(row), await access_for(request, user))
+        return await safe_readable(request, public_job(row), await access_for(request, user))
+
+    @router.get("/api/v1/agent-jobs/{job_id}/evidence")
+    async def job_evidence(job_id: UUID, request: Request, user=Depends(current_user)):
+        job = await record(request, 'agent_jobs', job_id, user)
+        access = await access_for(request, user)
+        if job.get('required_plan') == 'PRO' and not access.allows('professional_evidence'):
+            raise PlatformError(403, 'Current access does not permit this evidence')
+        if (await safe_readable(request, public_job(job), access)).get('evidence_stale'):
+            raise PlatformError(409, 'Some cited professional evidence is no longer current')
+        result = job.get('result') or {}
+        refs = list(result.get('evidence', []))
+        for claim in result.get('claims', []):
+            refs.extend(claim['evidence'])
+        for opportunity in result.get('opportunities', []):
+            refs.extend([opportunity['catalyst'], *opportunity['connections'],
+                         *opportunity['corroboration'], *opportunity['counter_evidence']])
+        items, seen = [], set()
+        fields = {'source_url', 'url', 'title', 'headline', 'publisher', 'source', 'event_date',
+                  'vendor_id', 'vendor_as_of', 'source_id', 'source_as_of', 'target', 'relation', 'confidence'}
+        for ref in refs:
+            key = (ref['kind'], ref['id'], ref.get('locator') or '', ref.get('ticker'))
+            if key in seen:
+                continue
+            seen.add(key)
+            row = await database(request).fetchrow(
+                'SELECT * FROM job_evidence WHERE job_id=$1 AND kind=$2 AND evidence_id=$3 AND locator=$4 '
+                'AND ($5::text IS NULL OR ticker=$5) ORDER BY fetched_at DESC LIMIT 1', job_id, *key)
+            if not row:
+                continue
+            if ref['kind'] == 'professional':
+                active = await database(request).fetchval(
+                    'SELECT EXISTS(SELECT 1 FROM platform_contributions c '
+                    'JOIN platform_contribution_versions v ON v.id=c.published_version_id '
+                    'JOIN platform_users u ON u.id=c.author_id WHERE v.id=$1 AND c.retracted_at IS NULL '
+                    'AND v.expires_at>now() AND u.professional_verified=true)', UUID(ref['id']))
+                if not active:
+                    continue
+            source = json.loads(row['source']) if isinstance(row['source'], str) else row['source']
+            items.append({**ref, 'source': {key: value for key, value in source.items() if key in fields}})
+        return {'items': items}
+
+    @router.get("/api/v1/agent-status")
+    async def agent_status(request: Request, user=Depends(current_user)):
+        if not user.is_developer:
+            return {'status': 'pilot_restricted'}
+        settings = request.app.state.settings
+        if not settings.agent_model_id or not settings.agent_input_usd_per_million or not settings.agent_output_usd_per_million:
+            return {'status': 'budget_not_configured'}
+        amount = await database(request).fetchval(
+            "SELECT coalesce(sum(charged_usd),0) FROM agent_model_reservations "
+            "WHERE month=date_trunc('month',now() AT TIME ZONE 'UTC')::date")
+        if amount >= settings.agent_monthly_usd_cap:
+            return {'status': 'budget_blocked'}
+        running = await database(request).fetchval(
+            "SELECT EXISTS(SELECT 1 FROM agent_worker_heartbeats WHERE enabled AND last_seen>now()-interval '90 seconds')")
+        return {'status': 'available' if running else 'unavailable'}
+
+    @router.post("/api/v1/agent-jobs/{job_id}/cancel")
+    async def cancel_job(job_id: UUID, request: Request, user=Depends(current_user)):
+        row = await record(request, 'agent_jobs', job_id, user)
+        async with database(request).acquire() as conn, conn.transaction():
+            await conn.fetchval('SELECT id FROM platform_users WHERE id=$1 FOR UPDATE', row['user_id'])
+            result = await conn.fetchrow(
+                "UPDATE agent_jobs SET state='cancelled',lease_token=NULL,lease_until=NULL,finished_at=now(),"
+                "error='Cancelled by user' WHERE id=$1 AND state IN ('pending','running') RETURNING *", job_id)
+            if result is None:
+                raise PlatformError(409, 'Job is no longer pending or running')
+        return public_job(unpack(result))
 
     @router.post("/api/v1/monitor-rules", status_code=201)
     async def add_monitor(body: MonitorInput, request: Request, user=Depends(current_user)):
@@ -327,6 +551,49 @@ def build_agent_router(current_user):
                 row["user_id"],str(monitor_id))
             await conn.execute("DELETE FROM monitors WHERE id=$1",monitor_id)
 
+    @router.patch("/api/v1/monitor-rules/{monitor_id}")
+    async def set_monitor_state(monitor_id: UUID, body: MonitorStateInput, request: Request, user=Depends(current_user)):
+        row = await record(request, 'monitors', monitor_id, user)
+        if body.active:
+            await access_for(request, user, 'market_monitoring' if row['scope'] == 'market' else 'monitoring')
+        async with database(request).acquire() as conn, conn.transaction():
+            await conn.fetchval('SELECT id FROM platform_users WHERE id=$1 FOR UPDATE', row['user_id'])
+            updated = await conn.fetchrow(
+                "UPDATE monitors SET active=$2,pause_reason=NULL,"
+                "next_run_at=CASE WHEN $2 THEN now() ELSE next_run_at END WHERE id=$1 RETURNING *",
+                monitor_id, body.active)
+            if not body.active:
+                await conn.execute(
+                    "UPDATE agent_jobs SET state='cancelled',lease_token=NULL,lease_until=NULL,finished_at=now(),"
+                    "error='Monitor paused' WHERE user_id=$1 AND state IN ('pending','running') "
+                    "AND input->>'monitor_id'=$2", row['user_id'], str(monitor_id))
+        return unpack(updated)
+
+    @router.get("/api/v1/monitor-rules/{monitor_id}/evaluations")
+    async def monitor_evaluations(monitor_id: UUID, request: Request, user=Depends(current_user),
+                                  limit: int = Query(25, ge=1, le=100)):
+        await record(request, 'monitors', monitor_id, user)
+        access = await access_for(request, user)
+        rows = await database(request).fetch(
+            'SELECT e.id,e.job_id,e.evaluated_at,e.outcome,j.required_plan FROM agent_monitor_evaluations e '
+            'JOIN agent_jobs j ON j.id=e.job_id WHERE e.monitor_id=$1 '
+            'ORDER BY e.evaluated_at DESC,e.id DESC LIMIT $2', monitor_id, limit)
+        items = []
+        for row in rows:
+            item = dict(row)
+            if item['required_plan'] == 'PRO' and not access.allows('professional_evidence'):
+                item.pop('outcome', None)
+                item['restricted'] = True
+            elif isinstance(item['outcome'], str):
+                item['outcome'] = json.loads(item['outcome'])
+            if 'outcome' in item:
+                sanitized = await safe_readable(request, {'result': item['outcome'], 'required_plan': item['required_plan']}, access)
+                if sanitized.get('evidence_stale'):
+                    item.pop('outcome', None)
+                    item['evidence_stale'] = True
+            items.append(item)
+        return {'items': items}
+
     @router.get("/api/v1/alerts")
     async def alerts(request: Request, user=Depends(current_user), limit: int=Query(50,ge=1,le=200),
                      cursor: UUID|None=None):
@@ -339,7 +606,7 @@ def build_agent_router(current_user):
             "ORDER BY created_at DESC,id DESC LIMIT $6",
             user.id,user.is_developer,access.allows("professional_evidence"),
             marker["created_at"] if marker else None,cursor,limit+1)
-        return {"items":[unpack(r) for r in rows[:limit]],
+        return {"items":[await safe_readable(request, unpack(r), access) for r in rows[:limit]],
                 "next_cursor":rows[limit-1]["id"] if len(rows)>limit else None}
 
     @router.post("/api/v1/alerts/{alert_id}/acknowledge")
@@ -355,8 +622,9 @@ def build_agent_router(current_user):
         return dict(row)
 
     @router.post("/internal/v1/agent/jobs/claim", dependencies=[Depends(agent_identity)])
-    async def claim(request: Request):
-        job = await claim_job(database(request), request.app.state.settings)
+    async def claim(request: Request, developer_only: bool = False, contract_version: int = Query(1, ge=1, le=2)):
+        job = await claim_job(database(request), request.app.state.settings,
+                              developer_only=developer_only or contract_version == 2, contract_version=contract_version)
         if job and job["input"].get("scope") == "market":
             tickers = await canonical_tickers(request, [])
             job["input"]["tickers"] = tickers
@@ -365,7 +633,16 @@ def build_agent_router(current_user):
                 job["id"],job["lease_token"],json.dumps(job["input"]))
         await audit_access(database(request),job["id"] if job else None,request.state.agent_actor,"job.claim")
         return {"job":job,"tools":["stock_context","financials","document_search"],
-                "max_tool_calls":100,"source_content_trust":"untrusted","execution_allowed":False}
+                "max_tool_calls":20 if contract_version == 2 else 100,
+                "source_content_trust":"untrusted","execution_allowed":False}
+
+    @router.post("/internal/v1/agent/workers/heartbeat", dependencies=[Depends(agent_identity)])
+    async def worker_heartbeat(body: WorkerHeartbeatInput, request: Request):
+        await database(request).execute(
+            'INSERT INTO agent_worker_heartbeats(worker_id,enabled,last_seen) VALUES($1,$2,now()) '
+            'ON CONFLICT(worker_id) DO UPDATE SET enabled=EXCLUDED.enabled,last_seen=now()',
+            body.worker_id, body.enabled)
+        return {'status': 'ok'}
 
     async def check_lease(request, job_id, token):
         try:
@@ -389,6 +666,121 @@ def build_agent_router(current_user):
                 raise PlatformError(409,"Agent lease is inactive or expired")
             await audit_access(conn,job_id,request.state.agent_actor,"job.heartbeat")
         return dict(row)
+
+    @router.post("/internal/v1/agent/jobs/{job_id}/model-reservations", dependencies=[Depends(agent_identity)])
+    async def reserve_model(job_id: UUID, body: ModelReservationInput, request: Request,
+                            x_job_lease: UUID = Header()):
+        await check_lease(request, job_id, x_job_lease)
+        from marketgraph_platform.agent_budget import reserve
+        try:
+            return await reserve(database(request), job_id, x_job_lease, body, request.app.state.settings)
+        except WorkConflict as exc:
+            raise PlatformError(429, str(exc)) from None
+
+    @router.post("/internal/v1/agent/jobs/{job_id}/model-reservations/{reservation_id}/settle", dependencies=[Depends(agent_identity)])
+    async def settle_model(job_id: UUID, reservation_id: UUID, body: ModelSettlementInput,
+                           request: Request, x_job_lease: UUID = Header()):
+        await check_lease(request, job_id, x_job_lease)
+        from marketgraph_platform.agent_budget import settle
+        try:
+            return await settle(database(request), job_id, x_job_lease, reservation_id, body)
+        except WorkConflict as exc:
+            raise PlatformError(409, str(exc)) from None
+
+    @router.get("/internal/v1/agent/jobs/{job_id}/conversation", dependencies=[Depends(agent_identity)])
+    async def conversation_history(job_id: UUID, request: Request, x_job_lease: UUID = Header()):
+        job = await check_lease(request, job_id, x_job_lease)
+        conversation_id = job['input'].get('conversation_id')
+        if job['kind'] != 'chat' or not conversation_id:
+            raise PlatformError(403, 'Conversation is outside this job')
+        try:
+            await reserve_tool_call(database(request), job_id, x_job_lease, request.state.agent_actor)
+        except WorkConflict as exc:
+            raise PlatformError(429 if 'budget' in str(exc) else 409, str(exc)) from None
+        rows = await database(request).fetch(
+            "SELECT role,content,evidence,required_plan,created_at FROM (SELECT role,content,evidence,required_plan,created_at,id FROM research_messages "
+            "WHERE conversation_id=$1 AND user_id=$2 AND ($3 OR required_plan='FREE') "
+            "ORDER BY created_at DESC,id DESC LIMIT 20) recent ORDER BY created_at,id",
+            UUID(conversation_id), job['user_id'], request.state.access.allows('professional_evidence'))
+        items = []
+        for row in rows:
+            item = await safe_readable(request, unpack(row), request.state.access)
+            if not item.get('restricted') and not item.get('evidence_stale'):
+                items.append({key: item[key] for key in ('role', 'content', 'created_at')})
+        return {'items': items}
+
+    @router.get("/internal/v1/agent/jobs/{job_id}/candidates", dependencies=[Depends(agent_identity)])
+    async def candidate_feed(job_id: UUID, request: Request, x_job_lease: UUID = Header(),
+                             offset: int = Query(0, ge=0, le=10000), limit: int = Query(50, ge=1, le=100)):
+        job = await check_lease(request, job_id, x_job_lease)
+        if job['kind'] not in ('discovery', 'monitor'):
+            raise PlatformError(403, 'Candidate discovery is outside this job')
+        try:
+            await reserve_tool_call(database(request), job_id, x_job_lease, request.state.agent_actor)
+            snapshot = await database(request).fetchrow(
+                'SELECT * FROM agent_candidate_snapshots WHERE job_id=$1', job_id)
+            if snapshot is None:
+                from datetime import UTC, datetime
+
+                from marketgraph_platform.agent_repository import locked_job
+                from marketgraph_platform.connections_api import graph_post
+                as_of = int(datetime.now(UTC).timestamp())
+                result = await graph_post(request, '/internal/v1/agents/candidates',
+                                          {'tickers': job['input']['tickers'], 'as_of_ts': as_of})
+                if any(not isinstance(item.get('material_version'), str) or len(item['material_version']) != 64
+                       for item in result.get('items', [])):
+                    raise PlatformError(503, 'Candidate source versions are unavailable')
+                allowed = set(job['input']['tickers'])
+                items = [item for item in result.get('items', [])
+                         if item.get('ticker') in allowed and item.get('event_id')
+                         and isinstance(item.get('event_ts'), int)
+                         and as_of - 72 * 3600 <= item['event_ts'] <= as_of][:200]
+                async with database(request).acquire() as conn, conn.transaction():
+                    locked, _ = await locked_job(conn, job_id, x_job_lease)
+                    if locked['state'] != 'running':
+                        raise WorkConflict('Only running jobs can create candidate snapshots')
+                    await conn.execute(
+                        'INSERT INTO agent_candidate_snapshots(job_id,as_of_ts,items,truncated) '
+                        'VALUES($1,$2,$3::jsonb,$4) ON CONFLICT(job_id) DO NOTHING',
+                        job_id, as_of, json.dumps(items), bool(result.get('truncated')))
+                    snapshot = await conn.fetchrow(
+                        'SELECT * FROM agent_candidate_snapshots WHERE job_id=$1', job_id)
+        except WorkConflict as exc:
+            raise PlatformError(429 if 'budget' in str(exc) else 409, str(exc)) from None
+        items = json.loads(snapshot['items']) if isinstance(snapshot['items'], str) else snapshot['items']
+        return {'items': items[offset:offset + limit], 'as_of_ts': snapshot['as_of_ts'],
+                'next_offset': offset + limit if offset + limit < len(items) else None,
+                'truncated': snapshot['truncated'], 'total': len(items)}
+
+    @router.get("/internal/v1/agent/jobs/{job_id}/monitor-baseline", dependencies=[Depends(agent_identity)])
+    async def monitor_baseline(job_id: UUID, request: Request, x_job_lease: UUID = Header()):
+        job = await check_lease(request, job_id, x_job_lease)
+        if job['kind'] != 'monitor' or not job['input'].get('monitor_id'):
+            raise PlatformError(403, 'Monitor baseline is outside this job')
+        try:
+            await reserve_tool_call(database(request), job_id, x_job_lease, request.state.agent_actor)
+        except WorkConflict as exc:
+            raise PlatformError(429 if 'budget' in str(exc) else 409, str(exc)) from None
+        row = await database(request).fetchrow(
+            'SELECT e.evaluated_at,e.outcome,j.required_plan FROM agent_monitor_evaluations e '
+            'JOIN agent_jobs j ON j.id=e.job_id JOIN monitors m ON m.id=e.monitor_id '
+            'WHERE e.monitor_id=$1 AND m.user_id=$2 ORDER BY e.evaluated_at DESC,e.id DESC LIMIT 1',
+            UUID(job['input']['monitor_id']), job['user_id'])
+        if row is None or (row['required_plan'] == 'PRO' and not request.state.access.allows('professional_evidence')):
+            return {'evaluated_at': None, 'opportunities': []}
+        outcome = json.loads(row['outcome']) if isinstance(row['outcome'], str) else row['outcome']
+        if (await safe_readable(request, {'result': outcome, 'required_plan': row['required_plan']}, request.state.access)).get('evidence_stale'):
+            return {'evaluated_at': None, 'opportunities': []}
+        items = []
+        for item in outcome.get('opportunities', []):
+            if item.get('ticker') not in job['input']['tickers']:
+                continue
+            refs = [item['catalyst'], *item['connections'], *item['corroboration'], *item['counter_evidence']]
+            items.append({'ticker': item['ticker'], 'catalyst_id': item['catalyst']['id'],
+                          'direction': item['direction'],
+                          'evidence_versions': sorted({ref['material_version'] for ref in refs})})
+        return {'evaluated_at': row['evaluated_at'], 'opportunities': items,
+                'coverage': outcome.get('coverage')}
 
     @router.get("/internal/v1/agent/jobs/{job_id}/context/{ticker}", dependencies=[Depends(agent_identity)])
     async def context(job_id: UUID,ticker: str,request: Request,x_job_lease: UUID=Header(),
@@ -445,7 +837,7 @@ def build_agent_router(current_user):
         await check_lease(request,job_id,x_job_lease)
         try:
             return public_job(await fail_job(database(request),job_id,x_job_lease,body.retryable,
-                request.app.state.settings.max_agent_attempts,request.state.agent_actor))
+                request.app.state.settings.max_agent_attempts,request.state.agent_actor,body.reason))
         except WorkConflict as exc:
             raise PlatformError(409,str(exc)) from None
 
@@ -458,5 +850,14 @@ def build_agent_router(current_user):
             return public_job(await complete_job(database(request),job_id,x_job_lease,body.model_dump()))
         except WorkConflict as exc:
             raise PlatformError(409,str(exc)) from None
+
+    @router.post("/internal/v2/agent/jobs/{job_id}/complete", dependencies=[Depends(agent_identity)])
+    async def finish_v2(job_id: UUID, body: AgentResultV2, request: Request, x_job_lease: UUID = Header()):
+        await check_lease(request, job_id, x_job_lease)
+        try:
+            return public_job(await complete_job(database(request), job_id, x_job_lease,
+                                                 body.model_dump(mode='json'), request.app.state.settings))
+        except WorkConflict as exc:
+            raise PlatformError(409, str(exc)) from None
 
     return router

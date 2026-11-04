@@ -51,3 +51,15 @@ class DeveloperEdgeResponse(BaseModel):
 class DeveloperEdgeDeleteResponse(BaseModel):
     edge_id: str
     deleted: bool
+
+
+class DeveloperEdgeUpdate(BaseModel):
+    """Edit an operator-created relationship while retaining its prior state."""
+
+    model_config = ConfigDict(extra="forbid", str_strip_whitespace=True)
+
+    relation: str = Field(pattern=r"^[A-Z][A-Z0-9_]{0,63}$")
+    rationale: str = Field(min_length=1, max_length=2000)
+    actor: str = Field(min_length=1, max_length=120)
+    confidence: float | None = Field(default=None, ge=0.0, le=1.0)
+    metadata: dict[str, Any] = Field(default_factory=dict)

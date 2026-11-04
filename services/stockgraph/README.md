@@ -24,6 +24,9 @@ incomplete and retryable rather than reporting empty inference as success.
 Configuration: `FALKOR_HOST`, `FALKOR_PORT`, `FALKOR_GRAPH_NAME`, `REDIS_URL`,
 `DATA_SERVICE_URL`, and LLM/embedding settings in the root environment example.
 No relational database URL belongs in this service's container environment.
+The example selects Meta's Muse Spark model through Baseten for chat inference;
+embeddings use their separately configured model and provider. See
+[Meta model and AI usage](../../docs/AI_AND_MODEL_USAGE.md).
 
 ## API
 
@@ -50,6 +53,13 @@ The local stdio MCP tools call Platform: set `MARKETGRAPH_PLATFORM_URL` and
 server is deployed.
 
 ## Inference
+
+The selected chat model powers dynamic ontology inference, news eligibility
+review, news-to-entity routing and cross-news correlation. Its structured
+responses pass schema, canonical-identity and confidence checks before graph
+writes. This inference does not produce trade recommendations. See the
+[AI usage guide](../../docs/AI_AND_MODEL_USAGE.md) for model settings and
+runtime controls.
 
 Canonical identity comes from committed registry projections, never YAML at
 runtime. Stock profiles include strengths and business exclusions. Every

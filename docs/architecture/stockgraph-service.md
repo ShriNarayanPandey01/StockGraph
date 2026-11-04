@@ -27,6 +27,7 @@ flowchart TB
     Extractor[NewsGraphExtractor]
     Deduper[NewsDeduper]
     Correlator[NewsCorrelator]
+    DeveloperLinks[Developer edge routes\nlist · create · update · delete]
     PlatformConsumer[PlatformConsumer]
     EventConsumer[EventConsumer]
     DataClient[DataServiceClient]
@@ -36,10 +37,12 @@ flowchart TB
     API --> Context
     API --> Preview
     API --> Evidence
+    API --> DeveloperLinks
     API --> DataClient
     Context --> Repo
     Preview --> Repo
     Evidence --> Repo
+    DeveloperLinks -->|writer lease| Repo
     EventConsumer --> Resolver
     EventConsumer --> Profile
     EventConsumer --> Ontology
@@ -57,7 +60,7 @@ flowchart TB
     DataClient --> Data[Data Service internal REST]
 ```
 
-## OOP class diagram
+## OOP LLD class diagram
 
 ```mermaid
 classDiagram
@@ -75,6 +78,10 @@ classDiagram
       +context_page(ticker, window, pagination)
       +professional_page(ticker, window, pagination)
       +public_market_graph_data(start_ts, end_ts)
+      +create_developer_edge(source, target, relation, metadata)
+      +list_developer_edges(limit, offset)
+      +update_developer_edge(edge_id, values)
+      +delete_developer_edge(edge_id)
     }
     class FalkorGraphRAGRepository {
       +_run(cypher, params)
@@ -111,6 +118,31 @@ classDiagram
     class GraphNewsEligibilityReviewer {
       +review(request) NewsEligibilityVerdict
     }
+    class DeveloperEdgeCreate {
+      <<request DTO>>
+      +source: DeveloperNodeRef
+      +target: DeveloperNodeRef
+      +relation: str
+      +rationale: str
+      +actor: str
+      +confidence: float | None
+      +metadata: dict
+    }
+    class DeveloperEdgeUpdate {
+      <<request DTO>>
+      +relation: str
+      +rationale: str
+      +actor: str
+      +confidence: float | None
+      +metadata: dict
+    }
+    class DeveloperEdgeAPI {
+      <<internal REST routes>>
+      +list_edges(limit, offset)
+      +create_edge(input)
+      +update_edge(edge_id, input)
+      +delete_edge(edge_id)
+    }
     class ChatProvider {
       <<abstract>>
       +complete_json(prompt, schema)
@@ -140,6 +172,10 @@ classDiagram
     EventConsumer --> EmbeddingProvider
     PlatformConsumer --> EvidencePipeline
     GraphNewsEligibilityReviewer --> ChatProvider
+    DeveloperEdgeAPI --> GraphRepository : graph-writer lease
+    DeveloperEdgeAPI --> DeveloperEdgeCreate
+    DeveloperEdgeAPI --> DeveloperEdgeUpdate
+    GraphContextService --> GraphRepository : reads manual links by window
 ```
 
 ## Projection and access flow
@@ -172,4 +208,8 @@ sequenceDiagram
 
 Numerical values requiring provenance are fetched from Data and retain their
 provider timestamp. Graph traversals use fixed `LAST_6M` / `LAST_1Y` windows and
-bounded pagination. Direct writes to FalkorDB bypass application guarantees.
+bounded pagination. Canonical catalog changes arrive through Data's event stream.
+Developer-created links use the internal mutation API, validated node references,
+and the graph-writer lease; updates retain link edit history and links appear in
+stock context. Other provider, inferred and baseline edges remain owned by their
+normal versioned projection flows.

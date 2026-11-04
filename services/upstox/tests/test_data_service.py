@@ -192,6 +192,7 @@ async def test_upstox_resolves_official_identity_and_fetches_profile():
                             "name": "Tata Consultancy Services",
                             "isin": "INE467B01029",
                             "segment": "NSE_EQ",
+                            "instrument_type": "EQ",
                             "instrument_key": "NSE_EQ|INE467B01029",
                         }
                     ],
@@ -283,6 +284,7 @@ async def test_ambiguous_instrument_requires_exact_symbol():
                 "isin": "INE1",
                 "instrument_key": "NSE_EQ|INE1",
                 "segment": "NSE_EQ",
+                "instrument_type": "EQ",
             },
             {
                 "trading_symbol": "ABCD",
@@ -290,6 +292,7 @@ async def test_ambiguous_instrument_requires_exact_symbol():
                 "isin": "INE2",
                 "instrument_key": "NSE_EQ|INE2",
                 "segment": "NSE_EQ",
+                "instrument_type": "EQ",
             },
         ],
     }

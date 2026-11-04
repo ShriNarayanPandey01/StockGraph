@@ -5,6 +5,7 @@ Future changes must append a migration rather than changing an applied entry.
 """
 
 import hashlib
+from pathlib import Path
 
 
 async def apply_migration(conn, name: str, sql: str):
@@ -31,5 +32,6 @@ async def migrate_data_store(conn):
     for name,sql in (
         ('001_numeric',DDL_SCHEMA),('002_catalog',CATALOG_DDL),
         ('003_stock_data',STOCK_DATA_DDL),('004_documents',DOCUMENT_DDL),
+        ('005_company_equity', Path(__file__).with_name('company_equity.sql').read_text(encoding='utf-8')),
     ):
         await apply_migration(conn,name,sql)

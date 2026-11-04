@@ -54,6 +54,16 @@ class CanonicalClient:
         except (httpx.HTTPError, ValueError):
             raise PlatformError(503, "Data Service temporarily unavailable") from None
 
+    async def patch_internal(self, path, payload, *, headers=None):
+        try:
+            result = await self.client.patch(path, json=payload, headers=headers)
+            if result.status_code in (400, 401, 403, 404, 409, 422):
+                raise PlatformError(result.status_code, "Data Service rejected the operation")
+            result.raise_for_status()
+            return result.json()
+        except (httpx.HTTPError, ValueError):
+            raise PlatformError(503, "Data Service temporarily unavailable") from None
+
     async def validate_ticker(self, ticker: str) -> str:
         # Registry lookup only: a public company-detail read may resolve an
         # unregistered provider symbol and is not canonical registration.

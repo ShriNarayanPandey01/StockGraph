@@ -44,6 +44,18 @@ class ContextNewsItem(BaseModel):
     )
 
 
+class GraphExploration(BaseModel):
+    """A connected, bounded neighborhood with no dependency on evidence offset."""
+
+    hops: int = Field(ge=1, le=3)
+    nodes: list[GraphNode]
+    edges: list[GraphEdge]
+    distances: dict[str, int]
+    truncated: bool
+    node_limit: int
+    edge_limit: int
+
+
 class GraphContextResponse(BaseModel):
     ticker: str
     window: Window
@@ -57,6 +69,7 @@ class GraphContextResponse(BaseModel):
     professional_evidence: list[dict[str, Any]] = Field(default_factory=list)
     evidence_policy: dict[str, Any] = Field(default_factory=dict)
     pagination: dict
+    exploration: GraphExploration | None = None
 
 
 class PublicMarketGraphSelection(BaseModel):

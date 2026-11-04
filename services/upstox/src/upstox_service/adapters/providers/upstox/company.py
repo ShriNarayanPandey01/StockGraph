@@ -9,6 +9,7 @@ from upstox_service.application.financial_context import (
     narrative_quarter_context,
     normalize_statements,
 )
+from upstox_service.domain.equity import is_company_equity
 from upstox_service.domain.models import CompanyBundle, StockRegistration
 
 
@@ -24,9 +25,7 @@ class UpstoxCompanyProvider:
         rows = [
             row
             for row in body.get("data", [])
-            if row.get("segment") == f"{exchange}_EQ"
-            and row.get("isin")
-            and row.get("instrument_key")
+            if isinstance(row, dict) and is_company_equity(row, exchange)
         ]
         exact = [
             r

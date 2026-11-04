@@ -131,7 +131,7 @@ class Conn:
             return {'user_id': self.job['user_id']}
         if 'FROM platform_users' in query:
             return {'id': self.job['user_id'], 'name':'Researcher', 'email':None,
-                    'email_verified':False,'professional_verified':False,'is_developer':False,
+                    'professional_verified':False,'is_developer':False,
                     'disabled':False,'roles':['USER'],'plan':'PRO','plan_expires_at':None,
                     'active_selection_initialized':False}
         if 'FROM platform_plan_policies' in query:

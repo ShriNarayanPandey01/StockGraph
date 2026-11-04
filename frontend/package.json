@@ -1,0 +1,19 @@
+{
+  "name": "stockgraph-frontend",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "scripts": {
+    "dev": "vite --host 127.0.0.1",
+    "build": "vite build",
+    "preview": "vite preview --host 127.0.0.1",
+    "test": "node --test tests/stock-connections.test.mjs",
+    "test:browser": "node --test tests/stock-connections.browser.cjs"
+  },
+  "dependencies": {
+    "lightweight-charts": "^5.0.0"
+  },
+  "devDependencies": {
+    "vite": "7.3.6"
+  }
+}

@@ -1,8 +1,10 @@
 """Assemble a graph-ready JSON page, including indirect causal paths."""
 
 import hashlib
+import json
 
 from stockgraph.adapters.repositories.falkor.repository import public_props
+from stockgraph.application.graph_queries.exploration import stock_exploration
 from stockgraph.application.professional import professional_context
 from stockgraph.domain.context import (
     ContextNewsItem,
@@ -27,7 +29,7 @@ class GraphContextService:
         offset: int = 0,
         limit: int = 50,
         as_of_ts: int | None = None,
-        *, include_professional: bool = False,
+        *, include_professional: bool = False, hops: int | None = None,
     ) -> GraphContextResponse:
         ticker = ticker.upper()
         stock = self._repo.get_entity("Stock", ticker)
@@ -116,6 +118,17 @@ class GraphContextService:
                     }
                 )
             )
+        for direction, kind, target, props in page.get("developer_links", [])[:limit]:
+            target_id = node(kind, target)
+            source_id, destination_id = (
+                (stock_id, target_id) if direction == "outgoing" else (target_id, stock_id)
+            )
+            metadata = json.loads(props.get("metadata_json") or "{}")
+            edge(source_id, destination_id, props.get("relation", "DEVELOPER_LINK"), {
+                **props,
+                "inferred_by": "developer_api",
+                "metadata": metadata,
+            })
         professional = {"items": [], "policy": {}, "pagination": {"has_more": False}}
         if include_professional and hasattr(self._repo, "professional_page"):
             professional = professional_context(self._repo, ticker, start, end, offset, limit,
@@ -143,6 +156,7 @@ class GraphContextService:
             indirect_news=indirect,
             professional_evidence=professional["items"],
             evidence_policy=professional["policy"],
+            exploration=stock_exploration(self._repo, stock, start, end, hops) if hops is not None else None,
             pagination={
                 "offset": offset,
                 "limit": limit,

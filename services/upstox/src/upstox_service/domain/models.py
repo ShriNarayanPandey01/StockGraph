@@ -38,6 +38,14 @@ class EntityInput(BaseModel):
     related_rationale: str = ""
 
 
+class AdminCatalogUpdate(BaseModel):
+    """A developer edit to descriptive registry data, versioned through the outbox."""
+
+    model_config = ConfigDict(extra="forbid", str_strip_whitespace=True)
+    changes: dict[str, Any] = Field(min_length=1, max_length=40)
+    reason: str = Field(min_length=1, max_length=2000)
+
+
 class ManualNewsInput(BaseModel):
     """A user-supplied article submitted through the graph-service proxy.
 

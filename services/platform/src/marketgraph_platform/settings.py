@@ -24,6 +24,12 @@ class Settings(BaseSettings):
     operational_max_pending_jobs_per_user: int = Field(default=20, ge=1)
     agent_lease_seconds: int = Field(default=300, ge=10)
     max_agent_attempts: int = Field(default=3, ge=1)
+    agent_monthly_usd_cap: float = Field(default=10.0, gt=0)
+    agent_job_usd_cap: float = Field(default=0.25, gt=0)
+    agent_model_id: str = ""
+    agent_input_usd_per_million: float | None = Field(default=None, gt=0)
+    agent_output_usd_per_million: float | None = Field(default=None, gt=0)
+    agent_graph_min_confidence: float = Field(default=0.65, ge=0, le=1)
     monitor_batch_size: int = Field(default=100, ge=1, le=1000)
     monitor_min_interval_seconds: int = Field(default=60, ge=60)
     internal_service_key: SecretStr = Field(default=SecretStr(""), validation_alias="MARKETGRAPH_INTERNAL_SERVICE_KEY")
@@ -33,19 +39,12 @@ class Settings(BaseSettings):
     admin_email: str = ""
     admin_password: SecretStr = SecretStr("")
     session_ttl_seconds: int = Field(default=43200, ge=300, le=604800)
-    auth_code_ttl_seconds: int = Field(default=900, ge=60, le=3600)
-    auth_code_max_attempts: int = Field(default=5, ge=1, le=10)
-    auth_resend_seconds: int = Field(default=60, ge=30, le=3600)
-    smtp_host: str = ""
-    smtp_port: int = Field(default=587, ge=1, le=65535)
-    smtp_username: str = ""
-    smtp_password: SecretStr = SecretStr("")
-    smtp_from: str = ""
-    smtp_starttls: bool = True
-    smtp_ssl: bool = False
-    smtp_timeout_seconds: float = Field(default=10, gt=0, le=60)
+    @field_validator('agent_input_usd_per_million', 'agent_output_usd_per_million', mode='before')
+    @classmethod
+    def empty_agent_rate(cls, value):
+        return None if value == '' else value
 
-    @field_validator("admin_email", "smtp_from")
+    @field_validator("admin_email")
     @classmethod
     def account_email(cls, value: str) -> str:
         import re

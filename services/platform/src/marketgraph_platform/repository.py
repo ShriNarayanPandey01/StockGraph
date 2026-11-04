@@ -68,7 +68,7 @@ class Repository:
         return user_id
 
     async def authenticate(self, digest: str):
-        row = await self.pool.fetchrow("""SELECT u.id,u.name,u.email,u.email_verified,u.professional_verified,
+        row = await self.pool.fetchrow("""SELECT u.id,u.name,u.email,u.professional_verified,
             u.is_developer,u.disabled,u.roles,u.plan,u.plan_expires_at,u.active_selection_initialized
             FROM platform_users u JOIN platform_tokens t ON t.user_id=u.id
             WHERE t.digest=$1 AND t.revoked_at IS NULL AND (t.expires_at IS NULL OR t.expires_at>now())""", digest)
@@ -294,4 +294,3 @@ class Repository:
     async def housekeeping(self):
         await self.pool.execute("DELETE FROM platform_request_buckets WHERE bucket<floor(extract(epoch from now())/60)::bigint-2")
         await self.pool.execute("DELETE FROM platform_auth_rate_buckets WHERE bucket<floor(extract(epoch from now())/60)::bigint-1440")
-        await self.pool.execute("DELETE FROM platform_auth_challenges WHERE expires_at<now()-interval '1 day'")

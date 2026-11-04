@@ -7,6 +7,8 @@ import json
 from datetime import UTC, date, datetime
 from typing import Any
 
+from upstox_service.domain.equity import is_company_equity
+
 STOCK_DATA_DDL = """
 CREATE TABLE IF NOT EXISTS equity_instruments (
     exchange text NOT NULL CHECK (exchange IN ('NSE','BSE')),
@@ -99,7 +101,7 @@ class StockDataRepository:
         by_exchange = {exchange: [] for exchange in ("NSE", "BSE")}
         for row in instruments:
             exchange = row.get("exchange")
-            if exchange in by_exchange and row.get("segment") == f"{exchange}_EQ":
+            if exchange in by_exchange and is_company_equity(row, exchange):
                 by_exchange[exchange].append(row)
         if not all(by_exchange.values()):
             raise ValueError("Both NSE and BSE equity files must contain stocks")
@@ -141,8 +143,8 @@ class StockDataRepository:
     async def upsert_instrument(self, row: dict) -> None:
         """Cache a resolved equity before the next BOD refresh, without registration."""
         exchange = str(row.get("exchange") or row.get("segment", "").split("_")[0])
-        if exchange not in {"NSE", "BSE"} or row.get("segment") != f"{exchange}_EQ":
-            raise ValueError("Only NSE/BSE equity instruments are supported")
+        if not is_company_equity(row, exchange):
+            raise ValueError("Only NSE/BSE company equity instruments are supported")
         pool = await self._repository.connect()
         async with pool.acquire() as conn:
             await conn.execute(

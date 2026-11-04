@@ -82,14 +82,9 @@ per-user restrictions; global provider/model budgets remain operating controls.
 Data/Graph domain routes require `MARKETGRAPH_INTERNAL_SERVICE_KEY`. Optional
 personal Upstox connections are encrypted using `PLATFORM_BROKER_ENCRYPTION_KEY`;
 invalid personal credentials require reconnection rather than silent fallback.
-Developer/SMTP/vault secrets belong only to the API process. The separate worker
+Developer and vault secrets belong only to the API process. The separate worker
 owns outbox relay and scheduling, not agent execution. The agents package is a
 health-only scaffold and existing external agents still use leased Platform REST.
-
-For Brevo SMTP with unknown-IP blocking enabled, authorize the public outbound
-IP of each `platform-api` server in **Security > Authorized IPs**. Removing that
-IP blocks verification/recovery email even when SMTP credentials are valid.
-See the [Brevo setup and IP check](../../docs/PHASE2_PLATFORM.md#brevo-smtp-authorize-the-sending-servers-ip).
 
 ## External-agent evidence contract
 

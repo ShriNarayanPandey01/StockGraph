@@ -115,13 +115,16 @@ def build_connections_router(current_user):
     async def connections(ticker: str,request: Request,user=Depends(current_user),
                           window: Literal['LAST_6M','LAST_1Y']='LAST_6M',
                           offset: int=Query(0,ge=0,le=100000),limit: int=Query(50,ge=1,le=200),
-                          as_of_ts: int|None=Query(None,ge=0)):
-        if set(request.query_params)-{'window','offset','limit','as_of_ts'}:
-            raise HTTPException(422,'Only fixed research windows and pagination parameters are supported')
+                          as_of_ts: int|None=Query(None,ge=0),
+                          hops: int|None=Query(None,ge=1,le=3)):
+        if set(request.query_params)-{'window','offset','limit','as_of_ts','hops'}:
+            raise HTTPException(422,'Only fixed research windows, pagination and hops parameters are supported')
         ticker = await check_stock(request,user,ticker)
         params = {'window':window,'offset':offset,'limit':limit}
         if as_of_ts is not None:
             params['as_of_ts']=as_of_ts
+        if hops is not None:
+            params['hops']=hops
         result = await graph_get(request,f'/api/v1/stocks/{quote(ticker.strip().upper(),safe="")}/context',params)
         await request.app.state.repository.measure(user.id,'stock_connections')
         return result

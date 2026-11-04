@@ -22,6 +22,10 @@ var/
 .playwright-mcp/
 .test-tmp-*/
 .test-artifacts/
+
+# Local browser captures and test artifacts.
+.pytest-agent-*/
+artifacts/
 wheels/
 share/python-wheels/
 *.egg-info/
@@ -154,6 +158,8 @@ activemq-data/
 
 # Environments
 .env
+.env.*
+!.env.example
 .envrc
 .venv
 env/
@@ -229,3 +235,7 @@ graphify-out/
 # Local project database backups (may contain licensed provider payloads).
 backups/
 var/
+logs/agents/*.jsonl*
+
+# Generated Brag output folders.
+brag-output*/

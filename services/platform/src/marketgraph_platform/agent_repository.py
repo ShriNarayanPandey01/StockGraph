@@ -39,7 +39,7 @@ def unpack(row):
     if row is None:
         return None
     result = dict(row)
-    for key in ('input', 'result', 'evidence', 'tickers'):
+    for key in ('input', 'result', 'evidence', 'tickers', 'opportunity'):
         if isinstance(result.get(key), str):
             result[key] = json.loads(result[key])
     return result
@@ -85,13 +85,19 @@ async def create_job(pool, user_id, kind, payload, key, max_pending=20, actor_id
         return unpack(row)
 
 
-async def claim_job(pool, settings):
+async def claim_job(pool, settings, *, developer_only=False, contract_version=1):
+    pilot_filter = (" AND EXISTS (SELECT 1 FROM platform_users u WHERE u.id=agent_jobs.user_id "
+                    "AND u.is_developer AND NOT u.disabled)" if developer_only else "")
     candidates = await pool.fetch(
-        "SELECT id,user_id FROM agent_jobs WHERE state='pending' OR "
-        "(state='running' AND lease_until<now()) ORDER BY created_at LIMIT 100")
+        "SELECT id,user_id FROM agent_jobs WHERE (state='pending' OR "
+        "(state='running' AND lease_until<now()))" + pilot_filter + " ORDER BY created_at LIMIT 100")
     for candidate in candidates:
         async with pool.acquire() as conn, conn.transaction():
             await conn.fetchval('SELECT id FROM platform_users WHERE id=$1 FOR UPDATE', candidate['user_id'])
+            if developer_only and not await conn.fetchval(
+                'SELECT is_developer AND NOT disabled FROM platform_users WHERE id=$1', candidate['user_id']
+            ):
+                continue
             row = await conn.fetchrow(
                 "SELECT * FROM agent_jobs WHERE id=$1 AND (state='pending' OR "
                 "(state='running' AND lease_until<now())) FOR UPDATE SKIP LOCKED", candidate['id'])
@@ -114,8 +120,8 @@ async def claim_job(pool, settings):
                 continue
             return unpack(await conn.fetchrow(
                 "UPDATE agent_jobs SET state='running',attempts=attempts+1,lease_token=$2,"
-                "lease_until=now()+make_interval(secs=>$3),error=NULL WHERE id=$1 RETURNING *",
-                job['id'], uuid4(), settings.agent_lease_seconds))
+                "lease_until=now()+make_interval(secs=>$3),error=NULL,contract_version=$4 WHERE id=$1 RETURNING *",
+                job['id'], uuid4(), settings.agent_lease_seconds, contract_version))
     return None
 
 
@@ -139,7 +145,8 @@ async def reserve_tool_call(pool, job_id, lease_token, actor):
         job, access = await locked_job(conn, job_id, lease_token)
         if job['state'] != 'running':
             raise WorkConflict('Completed work cannot retrieve more context')
-        ceiling = '' if access.developer else 'WHERE agent_usage.amount<100 '
+        ceiling = ('WHERE agent_usage.amount<20 ' if job.get('contract_version', 1) == 2 else
+                   '' if access.developer else 'WHERE agent_usage.amount<100 ')
         calls = await conn.fetchval(
             "INSERT INTO agent_usage(user_id,job_id,metric,amount) VALUES($1,$2,'tool_calls',1) "
             "ON CONFLICT(job_id,metric) DO UPDATE SET amount=agent_usage.amount+1 "
@@ -173,7 +180,7 @@ async def register_evidence(pool, job_id, lease_token, entries):
             expires = entry.get('eligible_until') or datetime.now(UTC) + timedelta(hours=1)
             await conn.execute(
                 'INSERT INTO job_evidence(job_id,kind,evidence_id,locator,ticker,source,quote_text,material_version,lease_token,eligible_until) '
-                'VALUES($1,$2,$3,$4,$5,$6::jsonb,$7,$8,$9,$10) ON CONFLICT(job_id,kind,evidence_id,locator) '
+                'VALUES($1,$2,$3,$4,$5,$6::jsonb,$7,$8,$9,$10) ON CONFLICT(job_id,kind,evidence_id,locator,ticker) '
                 'DO UPDATE SET source=EXCLUDED.source,quote_text=EXCLUDED.quote_text,material_version=EXCLUDED.material_version,'
                 'lease_token=EXCLUDED.lease_token,eligible_until=EXCLUDED.eligible_until,fetched_at=now()',
                 job_id, entry['kind'], entry['id'], locator, entry['ticker'], json.dumps(source, default=str),
@@ -232,7 +239,7 @@ async def validate_result_evidence(conn, job, lease_token, result):
             raise WorkConflict('Alert identity must use a supplied evidence ID and material version')
 
 
-async def fail_job(pool, job_id, lease_token, retryable, max_attempts, actor):
+async def fail_job(pool, job_id, lease_token, retryable, max_attempts, actor, reason='failure'):
     async with pool.acquire() as conn, conn.transaction():
         job, _ = await locked_job(conn, job_id, lease_token)
         if job['state'] != 'running':
@@ -240,11 +247,12 @@ async def fail_job(pool, job_id, lease_token, retryable, max_attempts, actor):
         state = 'pending' if retryable and job['attempts'] < max_attempts else 'failed'
         await audit_access(conn, job_id, actor, 'job.retry' if state == 'pending' else 'job.failed')
         return unpack(await conn.fetchrow(
-            "UPDATE agent_jobs SET state=$2,lease_token=NULL,lease_until=NULL,error='External agent reported failure',"
-            "finished_at=CASE WHEN $2='failed' THEN now() ELSE NULL END WHERE id=$1 RETURNING *", job_id, state))
+            "UPDATE agent_jobs SET state=$2,lease_token=NULL,lease_until=NULL,error=$3,"
+            "finished_at=CASE WHEN $2='failed' THEN now() ELSE NULL END WHERE id=$1 RETURNING *", job_id, state,
+            'budget_blocked' if reason == 'budget_blocked' else 'External agent reported failure'))
 
 
-async def complete_job(pool, job_id, lease_token, result):
+async def complete_job(pool, job_id, lease_token, result, settings=None):
     digest = fingerprint(result)
     async with pool.acquire() as conn, conn.transaction():
         job, access = await locked_job(conn, job_id, lease_token)
@@ -252,7 +260,15 @@ async def complete_job(pool, job_id, lease_token, result):
             if job['result_fingerprint'] != digest:
                 raise WorkConflict('Completed job received a different result')
             return job
-        await validate_result_evidence(conn, job, lease_token, result)
+        v2 = result.get('contract_version') == 2
+        if v2:
+            if job.get('contract_version') != 2 or settings is None:
+                raise WorkConflict('This job does not permit the v2 result contract')
+            from marketgraph_platform.agent_results import prepare_v2
+            result = await prepare_v2(conn, job, lease_token, result, settings.agent_graph_min_confidence,
+                                      access.allows('professional_evidence'))
+        else:
+            await validate_result_evidence(conn, job, lease_token, result)
         limit = access.policy['monthly_alert_limit']
         used = await conn.fetchval(
             "SELECT count(*) FROM opportunity_alerts WHERE user_id=$1 AND created_at >= "
@@ -264,7 +280,9 @@ async def complete_job(pool, job_id, lease_token, result):
         for alert in result.get('alerts', []):
             # The same canonical event/material revision is one opportunity
             # across agent retries and delivery channels. Account scope is SQL.
-            dedupe = fingerprint({key: alert[key] for key in ('ticker','event_id','material_version')})
+            dedupe = fingerprint({key: alert[key] for key in
+                                  (('ticker','event_id','opportunity_revision') if v2 else
+                                   ('ticker','event_id','material_version'))})
             if dedupe in seen_alerts:
                 continue
             seen_alerts.add(dedupe)
@@ -273,21 +291,54 @@ async def complete_job(pool, job_id, lease_token, result):
                 job['user_id'], dedupe)
             if duplicate:
                 continue
+            if v2:
+                previous = await conn.fetchrow(
+                    'SELECT opportunity_revision FROM opportunity_alerts WHERE user_id=$1 AND ticker=$2 '
+                    'AND catalyst_event_id=$3 ORDER BY created_at DESC,id DESC LIMIT 1',
+                    job['user_id'], alert['ticker'], alert['event_id'])
+                if previous and (previous['opportunity_revision'] == alert['opportunity_revision']
+                                 or not alert['opportunity']['material_change']):
+                    continue
+                if not previous:
+                    legacy = fingerprint({key: alert[key] for key in ('ticker','event_id','material_version')})
+                    if await conn.fetchval(
+                        'SELECT EXISTS(SELECT 1 FROM opportunity_alerts WHERE user_id=$1 AND dedupe_key=$2)',
+                        job['user_id'], legacy):
+                        continue
             if not access.allows('opportunity_alerts') or remaining == 0:
                 suppressed += 1
                 continue
-            inserted = await conn.fetchval(
-                'INSERT INTO opportunity_alerts(id,user_id,job_id,ticker,direction,summary,evidence,dedupe_key,required_plan) '
-                'VALUES($1,$2,$3,$4,$5,$6,$7::jsonb,$8,$9) ON CONFLICT(user_id,dedupe_key) DO NOTHING RETURNING id',
-                uuid4(), job['user_id'], job_id, alert['ticker'], alert['direction'], alert['summary'],
-                json.dumps(alert['evidence']), dedupe, job['required_plan'],
-            )
+            if v2:
+                inserted = await conn.fetchval(
+                    'INSERT INTO opportunity_alerts(id,user_id,job_id,ticker,direction,summary,evidence,dedupe_key,required_plan,'
+                    'opportunity,catalyst_event_id,opportunity_revision) '
+                    'VALUES($1,$2,$3,$4,$5,$6,$7::jsonb,$8,$9,$10::jsonb,$11,$12) '
+                    'ON CONFLICT(user_id,dedupe_key) DO NOTHING RETURNING id',
+                    uuid4(), job['user_id'], job_id, alert['ticker'], alert['direction'], alert['summary'],
+                    json.dumps(alert['evidence']), dedupe, job['required_plan'], json.dumps(alert['opportunity']),
+                    alert['event_id'], alert['opportunity_revision'])
+            else:
+                inserted = await conn.fetchval(
+                    'INSERT INTO opportunity_alerts(id,user_id,job_id,ticker,direction,summary,evidence,dedupe_key,required_plan) '
+                    'VALUES($1,$2,$3,$4,$5,$6,$7::jsonb,$8,$9) ON CONFLICT(user_id,dedupe_key) DO NOTHING RETURNING id',
+                    uuid4(), job['user_id'], job_id, alert['ticker'], alert['direction'], alert['summary'],
+                    json.dumps(alert['evidence']), dedupe, job['required_plan'],
+                )
             if inserted is not None:
                 created_alerts.append(alert)
                 if remaining is not None:
                     remaining -= 1
         stored_result = {**result, 'alerts': created_alerts, 'alerts_created': len(created_alerts),
                          'alerts_suppressed': suppressed}
+        if v2 and job['kind'] == 'monitor':
+            monitor_id = UUID(job['input']['monitor_id'])
+            monitor = await conn.fetchval('SELECT id FROM monitors WHERE id=$1 AND user_id=$2 AND active FOR SHARE',
+                                          monitor_id, job['user_id'])
+            if not monitor:
+                raise WorkConflict('Monitor is no longer active')
+            await conn.execute(
+                'INSERT INTO agent_monitor_evaluations(id,monitor_id,job_id,outcome) VALUES($1,$2,$3,$4::jsonb)',
+                uuid4(), monitor_id, job_id, json.dumps(stored_result))
         conversation = job['input'].get('conversation_id')
         if conversation:
             await conn.execute(

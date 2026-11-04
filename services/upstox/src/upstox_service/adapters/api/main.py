@@ -30,7 +30,13 @@ from upstox_service.application.ingestion.news_eligibility import NewsEligibilit
 from upstox_service.config.settings import Settings
 from upstox_service.domain.entities import NewsArticle
 from upstox_service.domain.enums import Window
-from upstox_service.domain.models import EntityInput, EntityKind, ManualNewsInput, StockRegistration
+from upstox_service.domain.models import (
+    AdminCatalogUpdate,
+    EntityInput,
+    EntityKind,
+    ManualNewsInput,
+    StockRegistration,
+)
 
 
 def create_app(repository=None, redis_client=None, config: Settings | None = None) -> FastAPI:
@@ -149,6 +155,15 @@ def create_app(repository=None, redis_client=None, config: Settings | None = Non
         if kind == EntityKind.STOCK:
             raise HTTPException(422, "Use POST /api/v1/stocks to resolve official stock identity")
         return await repository.upsert_entity(kind, request.model_dump(exclude_none=True))
+
+    @app.patch("/api/v1/admin/entities/{kind}/{entity_id}", status_code=202)
+    async def update_catalog_entity(kind: EntityKind, entity_id: str, request: AdminCatalogUpdate):
+        try:
+            return await repository.update_catalog_entity(kind, entity_id, request.changes)
+        except KeyError as exc:
+            raise HTTPException(404, str(exc)) from exc
+        except ValueError as exc:
+            raise HTTPException(422, str(exc)) from exc
 
     @app.post("/api/v1/manual/news", status_code=202)
     async def submit_manual_news(request: ManualNewsInput):

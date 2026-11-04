@@ -3,7 +3,7 @@
 > **Current release policy:** Read [PHASE2_PLATFORM.md](PHASE2_PLATFORM.md) for
 > public accounts, developer administration, Free/Pro enforcement and optional
 > encrypted Upstox connections. The fourth workspace package, `services/agents/`,
-> is a disabled health-only scaffold. Payments and trading remain deferred.
+> includes an opt-in, developer-pilot LangGraph worker. Payments and trading remain deferred.
 >
 > **Original platform extension:** Read [PHASE1_PLATFORM.md](PHASE1_PLATFORM.md)
 > for the new Platform Backend, separate ordinary PostgreSQL application database,
@@ -14,16 +14,24 @@
 This specification supersedes the older single-service folder layout, combined
 dossier API, YAML-as-runtime-registry, selective macro baseline, and 30-minute
 cadence in documents 01–03. Phase 2 trading decisions and order execution remain
-deferred. This repository contains backend services under `services/`; no
-browser frontend is included. Repository-root scripts and tests are cross-service
+deferred. Backend services live under `services/`; the Vite browser frontend is
+in `frontend/` and connects through the Platform API. Repository-root scripts and tests are cross-service
 operational tooling, not backend deployment entrypoints.
 
 For the whole-project system design and per-service system/OOP class diagrams,
 see the [architecture index](architecture/README.md).
+For per-route access rules and accepted/returned data types, see the
+[API access and data contracts](API_ACCESS_AND_DATA_CONTRACTS.md). The
+Swagger/OpenAPI reference is the place for operation-level schemas and examples.
+For chat provider selection, credentials, spend estimates and restart behavior,
+see [LLM provider configuration](LLM_PROVIDER_CONFIGURATION.md).
+For the selected Meta model, the StockGraph workflows that use it, separate
+embedding configuration and inference controls, see
+[Meta model and AI usage](AI_AND_MODEL_USAGE.md).
 
 ## Ownership and layout
 
-Data, Graph, Platform and the disabled Agents scaffold are separate Python packages
+Data, Graph, Platform and the opt-in Agents worker are separate Python packages
 in one uv workspace, with one root lockfile.
 Each image installs only its own package and dependencies. No service imports
 the sibling package or reads the sibling database.
@@ -99,6 +107,14 @@ pagination), `GET /api/v1/stocks/{ticker}` (company profile),
 unregistered equity may populate these SQL tables but does not register it or
 publish a graph event. A separate daily 06:00 IST job refreshes the NSE/BSE
 equity universe from Upstox's published instrument files.
+
+The stock directory includes company shares only: NSE `EQ` and BSE company
+trading groups, excluding fund/ETF ISINs (`INF...`). Cash segments also contain
+bonds, government securities and investment trusts; those are not company
+stocks. Migration `005_company_equity` marks previously imported non-stock
+directory entries inactive while preserving their source payloads. Restart or
+redeploy Data API, worker and scheduler together so every instrument writer uses
+the same classification on future refreshes.
 
 For local development, `uv run --package upstox-service python
 scripts/populate_sample_stocks.py` manually refreshes that SQL equity directory,
@@ -239,6 +255,10 @@ objects do not expose tokens or import a vendor SDK. Future option/order-history
 modules can compose the same client without coupling StockGraph to Upstox.
 
 ## Running, testing and safe reset
+
+The standalone browser frontend is started from `frontend/` with `npm install`
+and `npm run dev`; see [its README](../frontend/README.md) for its Platform API
+proxy and deployment configuration. It is not currently a Compose service.
 
 ```powershell
 uv sync --all-packages --group dev --inexact

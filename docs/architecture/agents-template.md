@@ -1,61 +1,20 @@
-# Agents service template system design
+# Agents service architecture
 
-Package: `services/agents/` (`marketgraph-agents`). This package is not an
-executing agent service. Its opt-in `agents-template` Compose profile serves a
-health endpoint on localhost port 8005 and reports `execution_enabled: false`
-with an empty registry.
-
-## Current system design
+Package `services/agents/` contains three LangGraph workflows. A separate opt-in worker claims developer-owned Platform jobs and dispatches the research, discovery, or monitoring graph. The health API remains a separate process and does not claim work.
 
 ```mermaid
 flowchart LR
-    Probe[Health probe] --> Runtime[FastAPI runtime]
-    Runtime --> Registry[Empty immutable registry]
-    Registry --> Count[registered_agents = 0]
-    NoJobs[No job polling or Platform calls]
+    UI[Frontend] --> Platform[Platform API and job store]
+    Worker[Agent worker] -->|lease and scoped tools| Platform
+    Platform --> Data[Data API]
+    Platform --> Graph[Graph API]
+    Worker --> Flow[Research / discovery / monitoring graphs]
+    Flow --> Eval[Shared analysis and challenge subgraph]
+    Eval --> Model[Configured model provider]
+    Worker -->|validated result| Platform
+    Platform --> Alerts[In-app alerts and evaluation history]
 ```
 
-Normal Compose startup excludes the template. The health application does not
-need a database, Redis, LLM key, broker credential or Platform service key. There
-is no scheduler, job-consumer loop, claim/heartbeat callback or concrete handler.
+Platform owns permissions, evidence registration, model-cost reservations, jobs, evaluation checkpoints, and alerts. Agents do not access application databases or broker credentials. Every graph uses an in-memory checkpointer scoped to its job attempt; after process or lease loss a new attempt reloads evidence through Platform. Provider calls are reserved before execution and validated before completion.
 
-## OOP class diagram
-
-```mermaid
-classDiagram
-    class Settings {
-      +platform_url: str
-      +platform_service_key: SecretStr
-    }
-    class Agent {
-      <<abstract>>
-      +run(job) dict
-    }
-    class PlatformClient {
-      <<abstract>>
-      +claim() dict
-      +heartbeat(job_id, lease) dict
-      +context(job_id, lease, ticker) dict
-      +complete(job_id, lease, result) dict
-      +fail(job_id, lease, retryable) dict
-    }
-    class RegistryModule {
-      <<module; immutable Mapping>>
-      +AGENTS: Mapping[str, type[Agent]]
-    }
-    class RuntimeFactory {
-      <<module function>>
-      +create_app()
-    }
-    RuntimeFactory --> RegistryModule : reports len(AGENTS)
-    Agent ..> PlatformClient : future implementation dependency
-```
-
-## Future transport boundary
-
-When real handlers are specified, the intended transport is Platform REST:
-`X-Agent-Key` authenticates the machine and `X-Job-Lease` scopes each context,
-heartbeat, completion and failure request. Platform remains authoritative for
-account permissions, source selection, citations and alerts. Agents will not
-connect directly to SQL/graph stores or receive user broker credentials. Existing
-separately hosted agent deployments remain independent of this empty package.
+See [the agent guide](../../services/agents/README.md) for configuration, limits, and pilot status.

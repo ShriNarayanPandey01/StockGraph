@@ -13,8 +13,11 @@ from fastapi import FastAPI
 from fastapi.testclient import TestClient
 from upstox_service.adapters.api.stock_routes import create_stock_router
 from upstox_service.adapters.providers.upstox.client import ProviderError
+from upstox_service.adapters.providers.upstox.company import UpstoxCompanyProvider
 from upstox_service.adapters.providers.upstox.stock_data import UpstoxStockDataProvider
+from upstox_service.adapters.repositories.timescale.stock_data import StockDataRepository
 from upstox_service.application import stock_data as stock_module
+from upstox_service.domain.equity import is_company_equity
 
 NOW = datetime.now(UTC)
 INSTRUMENT = {
@@ -42,7 +45,21 @@ async def test_bod_refresh_filters_derivatives_and_requires_both_exchanges():
                 "instrument_type": "A" if exchange == "BSE" else "EQ",
             },
             {"segment": f"{exchange}_FO", "instrument_type": "FUT", "trading_symbol": "X"},
+            # Both exchanges label ETFs as cash equities. BSE also includes
+            # fixed-income, government securities and closed-ended funds.
+            {**INSTRUMENT, "exchange": exchange, "segment": f"{exchange}_EQ",
+             "instrument_type": "B" if exchange == "BSE" else "EQ",
+             "trading_symbol": "NIFTYBEES", "isin": "INF204KB14I2"},
         ]
+        if exchange == "BSE":
+            rows.extend([
+                {**INSTRUMENT, "exchange": exchange, "segment": "BSE_EQ",
+                 "instrument_type": "F", "trading_symbol": "07ABB", "isin": "INF204KB15Q2"},
+                {**INSTRUMENT, "exchange": exchange, "segment": "BSE_EQ",
+                 "instrument_type": "F", "trading_symbol": "001HCCL29", "isin": "INE549A08963"},
+                {**INSTRUMENT, "exchange": exchange, "segment": "BSE_EQ",
+                 "instrument_type": "G", "trading_symbol": "0795GOI32", "isin": "INY020020106"},
+            ])
         return httpx.Response(200, content=gzip.compress(json.dumps(rows, default=str).encode()))
 
     provider = UpstoxStockDataProvider(
@@ -55,6 +72,38 @@ async def test_bod_refresh_filters_derivatives_and_requires_both_exchanges():
     assert len(rows) == 2
     assert {row["segment"] for row in rows} == {"NSE_EQ", "BSE_EQ"}
     assert {row["instrument_type"] for row in rows} == {"EQ", "A"}
+
+
+@pytest.mark.parametrize("group", ["A", "B", "T", "X", "XT", "Z", "P", "ZP", "M", "MT", "MS", "TS"])
+def test_bse_company_shares_keep_all_supported_trading_groups(group):
+    assert is_company_equity({**INSTRUMENT, "exchange": "BSE", "segment": "BSE_EQ",
+                              "instrument_type": group})
+
+
+@pytest.mark.parametrize("exchange,kind,isin", [
+    ("NSE", "EQ", "INF204KB14I2"),
+    ("BSE", "B", "INF204KB14I2"),
+    ("BSE", "F", "INF204KB15Q2"),
+    ("BSE", "F", "INE549A08963"),
+    ("BSE", "G", "INY020020106"),
+    ("BSE", "IF", "INE041025011"),
+])
+@pytest.mark.asyncio
+async def test_funds_and_debt_cannot_be_resolved_or_cached_as_stocks(exchange, kind, isin):
+    instrument = {**INSTRUMENT, "exchange": exchange, "segment": f"{exchange}_EQ",
+                  "instrument_type": kind, "isin": isin}
+    client = AsyncMock()
+    client.get.return_value = {"data": [instrument]}
+    with pytest.raises(ProviderError, match="No official equity"):
+        await UpstoxCompanyProvider(client).resolve("RELIANCE", exchange)
+    repository = AsyncMock()
+    with pytest.raises(ValueError, match="company equity"):
+        await StockDataRepository(repository).upsert_instrument(instrument)
+    repository.connect.assert_not_awaited()
+
+
+def test_listed_asset_manager_is_a_stock_even_when_name_contains_mutual_fund():
+    assert is_company_equity({**INSTRUMENT, "name": "An asset manager / mutual fund business"})
 
 
 @pytest.mark.asyncio

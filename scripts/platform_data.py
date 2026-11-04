@@ -3,6 +3,8 @@
 python -m scripts.platform_data --backup-dir backups
 python -m scripts.platform_data --restore archive.zip --writers-stopped --confirm marketgraph_platform
 Archives contain private application records and hashed authentication material.
+Restore older archives with the matching older schema and application version,
+then apply newer migrations; direct cross-schema restoration is unsupported.
 """
 
 from __future__ import annotations
@@ -25,7 +27,6 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 TABLES = (
     "platform_users",
     "platform_tokens",
-    "platform_auth_challenges",
     "platform_auth_rate_buckets",
     "platform_admin_audit",
     "platform_plan_policies",
@@ -46,11 +47,23 @@ TABLES = (
     "research_messages",
     "monitors",
     "agent_jobs",
+    "agent_model_reservations",
+    "agent_candidate_snapshots",
+    "agent_monitor_evaluations",
+    "agent_worker_heartbeats",
     "opportunity_alerts",
     "agent_usage",
     "job_evidence",
     "agent_access_audit",
 )
+AGENT_RUNTIME_TABLES = frozenset({
+    'agent_model_reservations', 'agent_candidate_snapshots',
+    'agent_monitor_evaluations', 'agent_worker_heartbeats',
+})
+LEGACY_ADDED_COLUMNS = {
+    'agent_jobs': ('contract_version',),
+    'opportunity_alerts': ('opportunity', 'catalyst_event_id', 'opportunity_revision'),
+}
 MIGRATIONS = (
     Path(__file__).resolve().parents[1] / "services/platform/src/marketgraph_platform/migrations"
 )
@@ -234,8 +247,7 @@ async def backup_connection(conn, destination: Path, *, schema="public") -> Path
 
 def validate_archive(archive: ZipFile) -> dict:
     names = archive.namelist()
-    expected = {"manifest.json", *(f"sql/{table}.copy" for table in TABLES)}
-    if len(names) != len(set(names)) or set(names) != expected:
+    if len(names) != len(set(names)) or 'manifest.json' not in names:
         raise ValueError("Archive members do not match the platform table allowlist")
     if sum(member.file_size for member in archive.infolist()) > MAX_ARCHIVE_BYTES:
         raise ValueError("Platform archive exceeds the supported restore size")
@@ -244,10 +256,16 @@ def validate_archive(archive: ZipFile) -> dict:
     manifest = json.loads(archive.read("manifest.json"))
     if manifest.get("format") != 1 or manifest.get("database") != "marketgraph_platform":
         raise ValueError("Not a platform backup")
-    if manifest.get("migrations") != migration_checksums() or set(
-        manifest.get("tables", {})
-    ) != set(TABLES):
+    current = migration_checksums()
+    legacy = {name: checksum for name, checksum in current.items() if name != '005_agent_runtime.sql'}
+    archived_tables = set(manifest.get('tables', {}))
+    is_current = manifest.get('migrations') == current and archived_tables == set(TABLES)
+    is_legacy = manifest.get('migrations') == legacy and archived_tables == set(TABLES) - AGENT_RUNTIME_TABLES
+    if not (is_current or is_legacy):
         raise ValueError("Archive migration or table manifest mismatch")
+    expected = {'manifest.json', *(f'sql/{table}.copy' for table in archived_tables)}
+    if set(names) != expected:
+        raise ValueError("Archive members do not match the platform table allowlist")
     for table, entry in manifest["tables"].items():
         if not isinstance(entry.get("rows"), int) or entry["rows"] < 0 or not entry.get("columns"):
             raise ValueError("Invalid table manifest")
@@ -268,17 +286,27 @@ async def restore_connection(conn, source: Path, *, schema="public") -> None:
                 + " IN ACCESS EXCLUSIVE MODE"
             )
             seeded_policy_rows = await _seeded_plan_policies(conn, schema)
+            archived_tables = [table for table in TABLES if table in manifest['tables']]
+            legacy = len(archived_tables) != len(TABLES)
             for table in TABLES:
                 if await conn.fetchval(f'SELECT EXISTS(SELECT 1 FROM {_schema(schema)}."{table}")'):
                     if table == "platform_plan_policies" and seeded_policy_rows:
                         continue
                     raise ValueError("Restore requires an empty initialized platform database")
-                if await _columns(conn, table, schema) != manifest["tables"][table]["columns"]:
-                    raise ValueError("Target column types do not match the platform archive")
+                if table in manifest['tables']:
+                    target_columns = await _columns(conn, table, schema)
+                    archived_columns = manifest['tables'][table]['columns']
+                    additions = LEGACY_ADDED_COLUMNS.get(table, ()) if legacy else ()
+                    if additions:
+                        if ([column['column_name'] for column in target_columns[len(archived_columns):]] != list(additions)
+                                or target_columns[:len(archived_columns)] != archived_columns):
+                            raise ValueError("Target column types do not match the platform archive")
+                    elif target_columns != archived_columns:
+                        raise ValueError("Target column types do not match the platform archive")
             if seeded_policy_rows:
                 await conn.execute(f'DELETE FROM {_schema(schema)}."platform_plan_policies"')
             await conn.execute("SET CONSTRAINTS ALL DEFERRED")
-            for table in TABLES:
+            for table in archived_tables:
                 entry = manifest["tables"][table]
                 await conn.copy_to_table(
                     table,
@@ -291,7 +319,7 @@ async def restore_connection(conn, source: Path, *, schema="public") -> None:
                 if count != entry["rows"]:
                     raise ValueError("Restored table count mismatch")
             await conn.execute("SET CONSTRAINTS ALL IMMEDIATE")
-            for table in TABLES:
+            for table in archived_tables:
                 for column in manifest["tables"][table]["columns"]:
                     name = column["column_name"]
                     sequence = await conn.fetchrow(

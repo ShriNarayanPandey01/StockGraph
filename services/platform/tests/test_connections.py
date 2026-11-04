@@ -76,6 +76,25 @@ def test_pro_gateway_retains_fixed_snapshot_and_professional_evidence(monkeypatc
     assert client.get('/api/v1/stocks/RELIANCE/connections?window=ALL_TIME',headers=headers).status_code == 422
 
 
+def test_connection_hops_are_validated_and_forwarded_without_changing_pagination(monkeypatch):
+    calls = []
+
+    async def graph(request, path, params):
+        calls.append((path, params))
+        return {"exploration": {"hops": params["hops"]}, "pagination": {"offset": params["offset"]}}
+
+    monkeypatch.setattr('marketgraph_platform.connections_api.graph_get', graph)
+    client = TestClient(create_app(Settings(_env_file=None), Repository(), object()))
+    headers = {'Authorization': 'Bearer fixture-token'}
+    response = client.get('/api/v1/stocks/RELIANCE/connections?hops=3&offset=50', headers=headers)
+    assert response.status_code == 200
+    assert calls == [('/api/v1/stocks/RELIANCE/context', {
+        'window': 'LAST_6M', 'offset': 50, 'limit': 50, 'hops': 3,
+    })]
+    for invalid in ('0', '4', 'all'):
+        assert client.get(f'/api/v1/stocks/RELIANCE/connections?hops={invalid}', headers=headers).status_code == 422
+
+
 def test_market_gateway_proxies_authenticated_search_profile_and_candles():
     calls = []
 

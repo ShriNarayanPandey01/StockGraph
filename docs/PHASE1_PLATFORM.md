@@ -14,8 +14,8 @@ The platform now enforces Free/Pro permissions and selected-stock/alert limits.
 The environment-managed developer account has all supported application access,
 including self-approval. Other publication requires authorized independent review.
 Payments are disabled; the future provider is undecided. Historical replay and
-order execution remain deferred. Agents may
-continue running separately; `services/agents/` is only a future-agent scaffold.
+order execution remain deferred. `services/agents/` provides an opt-in LangGraph
+worker for a developer-only research, discovery, and monitoring pilot.
 See [Phase 2](PHASE2_PLATFORM.md) for authentication, migration and quota details.
 
 ## Ownership and deployments
@@ -65,7 +65,7 @@ use the operator CLI for rotation or professional verification/revocation.
 There is no default token, anonymous user impersonation or self-verification API.
 The developer assigns reviewer permissions. Non-developer self-review is rejected;
 the developer can override publication and ownership restrictions with an audit
-record. Public signup and SMTP verification are described in Phase 2. TLS and
+record. Current signup behavior is described in Phase 2. TLS and
 private infrastructure networking remain deployment concerns.
 
 Local processes use `.env.example` as a reference. Local developer setup may
@@ -158,13 +158,13 @@ the current delivery channel is the durable in-app feed.
 
 ## Client applications
 
-No browser frontend is currently included in the repository or Docker Compose.
+The Vite browser frontend is in `frontend/`; it is run separately from Docker Compose.
 The backend capabilities remain available through the authenticated Platform,
 Data and Graph REST APIs and the original local stdio MCP tool. No remote HTTP
 MCP gateway is deployed by Compose. Stock relationship data
 is available through `GET /api/v1/stocks/{ticker}/connections`; callers should
-preserve `pagination.as_of_ts` across pages. External research agents remain
-separately hosted and can claim jobs through the Platform agent API. Market
+preserve `pagination.as_of_ts` across pages. The opt-in worker and separately
+hosted external agents claim jobs through the Platform agent API. Market
 relationships provide context and do not establish causation or issue orders.
 
 ## Backup, restore and validation
