@@ -5,6 +5,7 @@ from uuid import UUID
 
 from fastapi.testclient import TestClient
 from marketgraph_platform.api import create_app
+from marketgraph_platform.domain.access import AccessSnapshot
 from marketgraph_platform.models import Principal
 from marketgraph_platform.settings import Settings
 
@@ -23,6 +24,21 @@ class Repository:
 
     async def measure(self,*args):
         pass
+
+    async def load_access_snapshot(self, user_id):
+        return AccessSnapshot(self.user, {
+            'plan': 'PRO', 'active_stock_limit': None, 'monthly_alert_limit': None,
+            'features': {'professional_evidence': True, 'research_chat': True,
+                         'discovery': True, 'opportunity_alerts': True,
+                         'stock_connections': True, 'monitoring': True,
+                         'market_monitoring': True}, 'revision': 1,
+        }, ())
+
+    async def health_check(self):
+        return False
+
+    async def read_broker_credential(self, user_id):
+        return None
 
 
 class EntitlementPool:
@@ -49,6 +65,22 @@ class EntitlementPool:
         return None
 
 
+class GraphClient:
+    def __init__(self, get_result=None, request_result=None):
+        self.get_result = get_result or {}
+        self.request_result = request_result or {}
+        self.calls = []
+
+    async def get(self, path, params=None, *, professional=False, developer=False):
+        self.calls.append((path, params, professional, developer))
+        return self.get_result
+
+    async def request(self, method, path, *, body=None, params=None,
+                      professional=False, developer=False):
+        self.calls.append((method, path, body, params, professional, developer))
+        return self.request_result
+
+
 def test_connections_data_requires_token_and_browser_routes_are_absent():
     client = TestClient(create_app(Settings(_env_file=None),Repository(),object()))
     assert client.get('/connections').status_code == 404
@@ -57,40 +89,30 @@ def test_connections_data_requires_token_and_browser_routes_are_absent():
     assert client.get('/ready').status_code == 503
 
 
-def test_pro_gateway_retains_fixed_snapshot_and_professional_evidence(monkeypatch):
-    calls = []
-
-    async def graph(request,path,params):
-        calls.append((path,params))
-        return {'nodes':[{'kind':'ProfessionalEvidence','id':'version'}],
-                'pagination':{'as_of_ts':123456789,'next_offset':100},'processing_status':'graph_processing'}
-
-    monkeypatch.setattr('marketgraph_platform.connections_api.graph_get',graph)
-    client = TestClient(create_app(Settings(_env_file=None),Repository(),object()))
+def test_pro_gateway_retains_fixed_snapshot_and_professional_evidence():
+    result_body = {'nodes':[{'kind':'ProfessionalEvidence','id':'version'}],
+                   'pagination':{'as_of_ts':123456789,'next_offset':100},'processing_status':'graph_processing'}
+    graph = GraphClient(get_result=result_body)
+    client = TestClient(create_app(Settings(_env_file=None),Repository(),object(),graph_client=graph))
     headers = {'Authorization':'Bearer fixture-token'}
     result = client.get('/api/v1/stocks/RELIANCE/connections?window=LAST_1Y&limit=50&offset=50&as_of_ts=123456789',headers=headers)
     assert result.status_code == 200
     assert result.json()['nodes'][0]['kind'] == 'ProfessionalEvidence'
-    assert calls == [('/api/v1/stocks/RELIANCE/context',{'window':'LAST_1Y','limit':50,'offset':50,'as_of_ts':123456789})]
+    assert graph.calls == [('/api/v1/stocks/RELIANCE/context',
+                            {'window':'LAST_1Y','limit':50,'offset':50,'as_of_ts':123456789},True,False)]
     assert client.get('/api/v1/stocks/RELIANCE/connections?from_date=2020-01-01',headers=headers).status_code == 422
     assert client.get('/api/v1/stocks/RELIANCE/connections?window=ALL_TIME',headers=headers).status_code == 422
 
 
-def test_connection_hops_are_validated_and_forwarded_without_changing_pagination(monkeypatch):
-    calls = []
-
-    async def graph(request, path, params):
-        calls.append((path, params))
-        return {"exploration": {"hops": params["hops"]}, "pagination": {"offset": params["offset"]}}
-
-    monkeypatch.setattr('marketgraph_platform.connections_api.graph_get', graph)
-    client = TestClient(create_app(Settings(_env_file=None), Repository(), object()))
+def test_connection_hops_are_validated_and_forwarded_without_changing_pagination():
+    graph = GraphClient(get_result={"exploration": {"hops": 3}, "pagination": {"offset": 50}})
+    client = TestClient(create_app(Settings(_env_file=None), Repository(), object(), graph_client=graph))
     headers = {'Authorization': 'Bearer fixture-token'}
     response = client.get('/api/v1/stocks/RELIANCE/connections?hops=3&offset=50', headers=headers)
     assert response.status_code == 200
-    assert calls == [('/api/v1/stocks/RELIANCE/context', {
+    assert graph.calls == [('/api/v1/stocks/RELIANCE/context', {
         'window': 'LAST_6M', 'offset': 50, 'limit': 50, 'hops': 3,
-    })]
+    }, True, False)]
     for invalid in ('0', '4', 'all'):
         assert client.get(f'/api/v1/stocks/RELIANCE/connections?hops={invalid}', headers=headers).status_code == 422
 
@@ -103,7 +125,7 @@ def test_market_gateway_proxies_authenticated_search_profile_and_candles():
             calls.append((path, params))
             return {'items': []} if path.endswith('/stocks') else {'candles': []}
 
-    client = TestClient(create_app(Settings(_env_file=None),Repository(),CanonicalClient()))
+    client = TestClient(create_app(Settings(_env_file=None),Repository(),CanonicalClient(),graph_client=GraphClient()))
     headers = {'Authorization':'Bearer fixture-token'}
     assert client.get('/api/v1/market/stocks?query=INFY&exchange=NSE&limit=20',headers=headers).json() == {'items':[]}
     assert client.get('/api/v1/market/stocks/INFY?exchange=NSE',headers=headers).status_code == 200
@@ -116,19 +138,13 @@ def test_market_gateway_proxies_authenticated_search_profile_and_candles():
     assert client.get('/api/v1/market/stocks').status_code == 401
 
 
-def test_graph_stock_registration_is_authenticated_and_async(monkeypatch):
-    calls = []
-
-    async def submit(request, path, payload):
-        calls.append((path, payload))
-        return {'job_id':'job-123','status':'pending'}
-
-    monkeypatch.setattr('marketgraph_platform.connections_api.graph_post',submit)
-    client = TestClient(create_app(Settings(_env_file=None),Repository(),object()))
+def test_graph_stock_registration_is_authenticated_and_async():
+    graph = GraphClient(request_result={'job_id':'job-123','status':'pending'})
+    client = TestClient(create_app(Settings(_env_file=None),Repository(),object(),graph_client=graph))
     body = {'query':'INFY','exchange':'NSE','strengths':[],'business_exclusions':[]}
     assert client.post('/api/v1/market/stock-registrations',json=body).status_code == 401
     response = client.post('/api/v1/market/stock-registrations',json=body,
                            headers={'Authorization':'Bearer fixture-token'})
     assert response.status_code == 202
     assert response.json()['job_id'] == 'job-123'
-    assert calls == [('/api/v1/stocks',body)]
+    assert graph.calls == [('POST', '/api/v1/stocks', body, None, False, False)]

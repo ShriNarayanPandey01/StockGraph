@@ -3,8 +3,9 @@
 import hashlib
 import json
 
-from stockgraph.adapters.repositories.falkor.repository import public_props
 from stockgraph.application.graph_queries.exploration import stock_exploration
+from stockgraph.application.graph_queries.presentation import public_props
+from stockgraph.application.ports import GraphContextReader, ProfessionalEvidenceReader
 from stockgraph.application.professional import professional_context
 from stockgraph.domain.context import (
     ContextNewsItem,
@@ -15,12 +16,14 @@ from stockgraph.domain.context import (
 )
 from stockgraph.domain.enums import Window
 from stockgraph.domain.schemas import resolve_window
-from stockgraph.runtime.settings import settings
 
 
 class GraphContextService:
-    def __init__(self, repo):
+    def __init__(self, repo: GraphContextReader, evidence: ProfessionalEvidenceReader | None = None,
+                 professional_weight: float = 1.5):
         self._repo = repo
+        self._evidence = evidence
+        self._professional_weight = professional_weight
 
     def get_context(
         self,
@@ -130,9 +133,11 @@ class GraphContextService:
                 "metadata": metadata,
             })
         professional = {"items": [], "policy": {}, "pagination": {"has_more": False}}
-        if include_professional and hasattr(self._repo, "professional_page"):
-            professional = professional_context(self._repo, ticker, start, end, offset, limit,
-                                                settings.professional_evidence_weight)
+        if include_professional:
+            if self._evidence is None:
+                raise RuntimeError("Professional evidence reader is not configured")
+            professional = professional_context(self._evidence, ticker, start, end, offset, limit,
+                                                self._professional_weight)
             for view in professional["items"]:
                 evidence_id = node("ProfessionalEvidence", view)
                 edge(evidence_id, stock_id, "PROFESSIONAL_VIEW_ON", {

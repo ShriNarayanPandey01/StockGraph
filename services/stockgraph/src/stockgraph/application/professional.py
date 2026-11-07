@@ -1,37 +1,34 @@
 """Committed evidence processing and transparent professional weighting."""
 
-from stockgraph.adapters.repositories.falkor.professional import EvidenceRepository
+from stockgraph.application.ports import EmbeddingModel, EvidenceWriter, ProfessionalEvidenceReader
 from stockgraph.domain.platform_events import ProfessionalEvidence
 
 
 class EvidencePipeline:
-    def __init__(self, repo, embedder=None):
-        self._repo = repo
-        self.embedder = embedder
-        self.evidence = EvidenceRepository(repo)
+    def __init__(self, evidence: EvidenceWriter, embedder: EmbeddingModel | None = None):
+        self._embedder = embedder
+        self._evidence = evidence
 
     def process(self, event):
         if event.kind == "professional.author-status":
-            return self.evidence.project_author_status(event)
+            return self._evidence.project_author_status(event)
         if event.kind == "document.extracted":
-            self.evidence.project_document(event)
-            if self.embedder is not None:
+            self._evidence.project_document(event)
+            if self._embedder is not None:
                 for chunk in event.payload["chunks"]:
-                    embedding = self.embedder.embed_one(chunk["text"])
-                    self.evidence.embed_document_chunk(chunk["id"], embedding)
-                self.evidence.document_semantic_status(event.payload["version_id"], "completed")
+                    embedding = self._embedder.embed_one(chunk["text"])
+                    self._evidence.embed_document_chunk(chunk["id"], embedding)
+                self._evidence.document_semantic_status(event.payload["version_id"], "completed")
             else:
-                self.evidence.document_semantic_status(event.payload["version_id"], "pending_disabled")
+                self._evidence.document_semantic_status(event.payload["version_id"], "pending_disabled")
             return True
         payload = (ProfessionalEvidence.model_validate(event.payload)
                    if event.kind == "professional.published" else None)
-        return self.evidence.project_professional(event, payload)
+        return self._evidence.project_professional(event, payload)
 
 
-def professional_context(repo, ticker, start, end, offset=0, limit=50, weight=1.5):
-    rows = (repo.professional_page(ticker, start, end, offset, limit)
-            if hasattr(repo, "professional_page") else
-            EvidenceRepository(repo).professional_page(ticker, start, end, offset, limit))
+def professional_context(repo: ProfessionalEvidenceReader, ticker, start, end, offset=0, limit=50, weight=1.5):
+    rows = repo.professional_page(ticker, start, end, offset, limit)
     return {
         "items": [{**row, "priority_weight": weight if row.get("author_verified", True) else 1.0}
                   for row in rows[:limit]],

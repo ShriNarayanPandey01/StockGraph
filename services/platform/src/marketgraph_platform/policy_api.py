@@ -1,13 +1,10 @@
 """Authenticated policy and administrative quota configuration."""
-import json
 from typing import Literal
 
 from fastapi import APIRouter, Depends, Request
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
-from marketgraph_platform.entitlements import audit_admin
 from marketgraph_platform.policy import FEATURES, require_permission
-from marketgraph_platform.repository import PlatformError
 
 
 class Selection(BaseModel):
@@ -51,21 +48,15 @@ def build_policy_router(current_user):
     @router.get("/api/v1/admin/plans")
     async def plans(request: Request, user=Depends(current_user)):
         require_permission(user, "admin")
-        rows = await request.app.state.repository.pool.fetch("SELECT * FROM platform_plan_policies ORDER BY plan")
-        return {"items": [{**dict(row), "features": json.loads(row["features"]) if isinstance(row["features"],str) else row["features"]} for row in rows]}
+        return {"items": await request.app.state.repository.plan_policies()}
 
     @router.put("/api/v1/admin/plans/{plan}")
     async def update(plan: Literal["FREE", "PRO"], body: PlanInput, request: Request, user=Depends(current_user)):
         require_permission(user, "admin")
-        async with request.app.state.repository.pool.acquire() as conn, conn.transaction():
-            row = await conn.fetchrow(
-                "UPDATE platform_plan_policies SET active_stock_limit=$2,monthly_alert_limit=$3,features=$4::jsonb,"
-                "revision=revision+1 WHERE plan=$1 AND revision=$5 RETURNING *", plan,
-                body.active_stock_limit, body.monthly_alert_limit, json.dumps(body.features), body.expected_revision)
-            if row is None:
-                raise PlatformError(409, "Plan changed; reload its revision")
-            await audit_admin(conn, user.id, "plan.policy", details={"plan": plan, "revision": row["revision"]})
-        return {**dict(row), "features": body.features}
+        return await request.app.state.repository.update_plan_policy(
+            plan, body.expected_revision, body.active_stock_limit,
+            body.monthly_alert_limit, body.features, user.id
+        )
 
     return router
 

@@ -3,13 +3,11 @@ from typing import Literal
 from urllib.parse import quote
 from uuid import UUID
 
-import httpx
 from fastapi import APIRouter, Depends, Query, Request
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
-from marketgraph_platform.entitlements import audit_admin
+from marketgraph_platform.errors import PlatformError
 from marketgraph_platform.policy import require_permission
-from marketgraph_platform.repository import PlatformError
 
 RECORDS = {"watchlists":"watchlists","conversations":"conversations","messages":"research_messages",
            "monitors":"monitors","jobs":"agent_jobs","alerts":"opportunity_alerts",
@@ -47,42 +45,33 @@ def build_admin_router(current_user):
         return user
 
     async def graph(request,user,method,path,body=None,params=None):
-        settings = request.app.state.settings
-        await audit_admin(request.app.state.repository.pool,user.id,"graph."+method,details={"path":path})
-        try:
-            async with httpx.AsyncClient(base_url=settings.graph_service_url,timeout=settings.http_timeout_seconds,
-                    headers={"X-Internal-Service-Key":settings.internal_service_key.get_secret_value(),
-                             "X-MarketGraph-Developer":"true","X-MarketGraph-Evidence-Scope":"professional"}) as client:
-                result = await client.request(method,path,json=body,params=params)
-                if result.status_code in (400,401,403,404,409,422):
-                    raise PlatformError(result.status_code,"Graph service rejected the operation")
-                result.raise_for_status()
-                return result.json()
-        except (httpx.HTTPError,ValueError):
-            raise PlatformError(503,"Graph service is unavailable") from None
+        await request.app.state.repository.audit_action(
+            user.id, "graph." + method, details={"path": path}
+        )
+        return await request.app.state.graph_client.request(
+            method, path, body=body, params=params, developer=True, professional=True
+        )
 
     @router.get("/api/v1/admin/users/{owner_id}/records/{resource}")
     async def records(owner_id: UUID,resource: Literal["watchlists","conversations","messages","monitors","jobs","alerts","contributions"],
                       request: Request,user=Depends(developer),limit: int=Query(100,ge=1,le=500),offset: int=Query(0,ge=0)):
-        table = RECORDS[resource]
-        column = "author_id" if resource == "contributions" else "user_id"
-        rows = await request.app.state.repository.pool.fetch(
-            f"SELECT * FROM {table} WHERE {column}=$1 ORDER BY id LIMIT $2 OFFSET $3",owner_id,limit,offset)
-        await audit_admin(request.app.state.repository.pool,user.id,"records.read",owner_id,{"resource":resource})
-        return {"items":[{k:v for k,v in dict(row).items() if k not in ("lease_token","fingerprint","result_fingerprint")} for row in rows]}
+        repository = request.app.state.repository
+        items = await repository.admin_records(owner_id, resource, limit, offset)
+        await repository.audit_action(user.id, "records.read", owner_id, {"resource": resource})
+        return {"items": items}
 
     @router.get("/api/v1/admin/audit")
     async def audit(request: Request,user=Depends(developer),limit: int=Query(100,ge=1,le=500),offset: int=Query(0,ge=0)):
-        return {"items":[dict(row) for row in await request.app.state.repository.pool.fetch(
-            "SELECT * FROM platform_admin_audit ORDER BY id DESC LIMIT $1 OFFSET $2",limit,offset)]}
+        return {"items": await request.app.state.repository.admin_audit(limit, offset)}
 
     @router.get("/api/v1/admin/graph/entities")
     async def graph_entities(request: Request,user=Depends(developer),
                              kind: Literal["Stock","Commodity","MacroFactor","Sector"]|None=None):
         result = await request.app.state.canonical_client.get(
             "/api/v1/entities", {"kind":kind} if kind else None)
-        await audit_admin(request.app.state.repository.pool,user.id,"graph.catalog.read",
-                          details={"kind":kind})
+        await request.app.state.repository.audit_action(
+            user.id, "graph.catalog.read", details={"kind": kind}
+        )
         return result
 
     @router.get("/api/v1/admin/graph/stocks/{ticker}/context")
@@ -107,20 +96,22 @@ def build_admin_router(current_user):
         path = f"/api/v1/admin/entities/{kind}/{quote(entity_id,safe='')}"
         result = await request.app.state.canonical_client.patch_internal(
             path,{"changes":body.changes,"reason":body.reason})
-        await audit_admin(request.app.state.repository.pool,user.id,"graph.catalog.update",
-                          details={"kind":kind,"entity_id":entity_id,
-                                   "fields":sorted(body.changes),"reason":body.reason,
-                                   "revision":result.get("revision")})
+        await request.app.state.repository.audit_action(
+            user.id, "graph.catalog.update",
+            details={"kind": kind, "entity_id": entity_id,
+                     "fields": sorted(body.changes), "reason": body.reason,
+                     "revision": result.get("revision")},
+        )
         return result
 
     @router.get("/api/v1/admin/users/{owner_id}/broker-connections/upstox")
     async def broker_status(owner_id: UUID,request: Request,user=Depends(developer)):
-        await audit_admin(request.app.state.repository.pool,user.id,"broker.status",owner_id)
+        await request.app.state.repository.audit_action(user.id, "broker.status", owner_id)
         return await request.app.state.brokers.status(owner_id)
 
     @router.delete("/api/v1/admin/users/{owner_id}/broker-connections/upstox")
     async def broker_disconnect(owner_id: UUID,request: Request,user=Depends(developer)):
-        await audit_admin(request.app.state.repository.pool,user.id,"broker.disconnect",owner_id)
+        await request.app.state.repository.audit_action(user.id, "broker.disconnect", owner_id)
         return await request.app.state.brokers.disconnect(owner_id)
 
     @router.post("/api/v1/admin/manual/stocks",status_code=202)
@@ -152,8 +143,9 @@ def build_admin_router(current_user):
         payload["actor"] = "developer:" + str(user.id)
         result = await graph(request,user,"PUT",
                              "/api/v1/developer/edges/"+quote(edge_id,safe=""),payload)
-        await audit_admin(request.app.state.repository.pool,user.id,"graph.edge.update",
-                          details={"edge_id":edge_id,"reason":body.reason})
+        await request.app.state.repository.audit_action(
+            user.id, "graph.edge.update", details={"edge_id": edge_id, "reason": body.reason}
+        )
         return result
 
     @router.delete("/api/v1/admin/graph/edges/{edge_id}")
@@ -164,7 +156,9 @@ def build_admin_router(current_user):
     async def market(resource: Literal["option-expiries","option-chain","institutional-flows","holidays","pcr","oi","change-oi","max-pain"],
                      request: Request,user=Depends(developer)):
         paths = {"option-expiries":"/api/v1/option-chains/expiries","option-chain":"/api/v1/option-chains"}
-        await audit_admin(request.app.state.repository.pool,user.id,"market.read",details={"resource":resource})
+        await request.app.state.repository.audit_action(
+            user.id, "market.read", details={"resource": resource}
+        )
         return await request.app.state.canonical_client.get(paths.get(resource,"/api/v1/market/"+resource),dict(request.query_params))
 
     @router.post("/api/v1/admin/documents",status_code=202)
@@ -172,7 +166,7 @@ def build_admin_router(current_user):
         key = request.app.state.settings.document_internal_api_key.get_secret_value()
         if not key:
             raise PlatformError(503,"Document intake is not configured")
-        await audit_admin(request.app.state.repository.pool,user.id,"documents.intake")
+        await request.app.state.repository.audit_action(user.id, "documents.intake")
         return await request.app.state.canonical_client.post_internal("/api/v1/documents",body,headers={"X-Internal-Api-Key":key})
 
     return router

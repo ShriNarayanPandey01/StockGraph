@@ -52,8 +52,9 @@ class NewsCandidateResolver:
         """
         candidates: list[str] = []
         for ticker in article.tickers:
-            if ticker not in candidates:
-                candidates.append(ticker)
+            canonical = self._resolver.resolve_stock(ticker)
+            if canonical is not None and canonical not in candidates:
+                candidates.append(canonical)
         for ticker in self._text_matches(article):
             if ticker not in candidates:
                 candidates.append(ticker)
@@ -84,7 +85,7 @@ class NewsCandidateResolver:
         haystack = f" {haystack} "
 
         hits: list[tuple[int, str]] = []
-        for key, ticker in self._resolver.stocks_by_key.items():
+        for key, ticker in self._resolver.stock_aliases():
             position = haystack.find(f" {key} ")
             if position >= 0:
                 hits.append((position, ticker))

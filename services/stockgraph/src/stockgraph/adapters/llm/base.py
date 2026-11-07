@@ -36,6 +36,8 @@ from abc import ABC, abstractmethod
 from typing import Any
 
 from pydantic import BaseModel, ValidationError
+from stockgraph.application.errors import BudgetExceeded as BudgetExceeded
+from stockgraph.application.errors import LLMDisabled as LLMDisabled
 from stockgraph.runtime.settings import settings
 
 EMBEDDING_CACHE_PREFIX = "emb:v1"
@@ -51,14 +53,6 @@ def embedding_cache_key(model: str, text: str) -> str:
 def spend_key(year_month: str) -> str:
     """Monthly spend ledger key, e.g. `llm:spend:2026-10`."""
     return f"{SPEND_KEY_PREFIX}:{year_month}"
-
-
-class BudgetExceeded(RuntimeError):
-    """Raised when the monthly USD cap would be breached (fail-closed)."""
-
-
-class LLMDisabled(RuntimeError):
-    """Raised when providers are called with `llm_enabled=false` (offline/CI)."""
 
 
 class EmbeddingProvider(ABC):

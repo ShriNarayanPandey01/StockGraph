@@ -172,8 +172,7 @@ async def test_cursor_pagination_is_bound_to_query_and_exchange(monkeypatch):
          {**INSTRUMENT, "trading_symbol": "TCS", "registered": True}],
         [],
     ]
-    monkeypatch.setattr(stock_module, "StockDataRepository", lambda _: repository)
-    service = stock_module.StockDataService(AsyncMock(), AsyncMock())
+    service = stock_module.StockDataService(repository, AsyncMock())
     first = await service.list_stocks("Re", "NSE", limit=1)
     assert len(first["items"]) == 1
     assert first["next_cursor"]
@@ -192,13 +191,12 @@ async def test_unregistered_stock_read_persists_profile_without_registration(mon
     repository.get_instrument.return_value = INSTRUMENT
     repository.get_profile.return_value = None
     repository.is_registered.return_value = False
-    monkeypatch.setattr(stock_module, "StockDataRepository", lambda _: repository)
     provider = AsyncMock()
     provider.fetch_profile.return_value = {
         "business_summary": "Energy and retail", "sector": "Refineries"
     }
     original_repository = AsyncMock()
-    service = stock_module.StockDataService(original_repository, provider)
+    service = stock_module.StockDataService(repository, provider)
     detail = await service.stock("RELIANCE", "NSE")
     assert detail["registered"] is False
     assert detail["profile"]["business_summary"] == "Energy and retail"
@@ -221,8 +219,7 @@ async def test_shareholding_groups_categories_and_keeps_provenance(monkeypatch):
             {"period": "Mar 2026", "category": "retail_and_other", "percentage": 13},
         ],
     }
-    monkeypatch.setattr(stock_module, "StockDataRepository", lambda _: repository)
-    service = stock_module.StockDataService(AsyncMock(), AsyncMock())
+    service = stock_module.StockDataService(repository, AsyncMock())
     result = await service.shareholding("RELIANCE", "NSE")
     assert result["periods"][0]["dii"] == 19
     assert result["periods"][0]["public"] == 13
@@ -236,10 +233,9 @@ async def test_candles_backfill_in_chunks_and_use_sql_cache(monkeypatch):
     repository.get_instrument.return_value = INSTRUMENT
     repository.has_candle_coverage.side_effect = [False, True]
     repository.get_candles.return_value = []
-    monkeypatch.setattr(stock_module, "StockDataRepository", lambda _: repository)
     provider = AsyncMock()
     provider.fetch_daily_candles.return_value = []
-    service = stock_module.StockDataService(AsyncMock(), provider)
+    service = stock_module.StockDataService(repository, provider)
     end = datetime.now(UTC).date() - timedelta(days=2)
     start = end - timedelta(days=6 * 365)
     await service.candles("RELIANCE", "NSE", start, end)

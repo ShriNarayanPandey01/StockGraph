@@ -2,10 +2,10 @@
 
 from collections.abc import Iterable
 
-from stockgraph.adapters.llm.tokens import count_tokens, truncate_to_tokens
 from stockgraph.application.processors.news_graph_extractor import render_card, render_registry
 from stockgraph.domain.schemas import StockContextCard
 from stockgraph.runtime.settings import settings
+from stockgraph.shared.tokens import count_tokens, truncate_to_tokens
 
 
 def compact_card(card: StockContextCard) -> StockContextCard:

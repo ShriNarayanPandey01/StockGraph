@@ -56,7 +56,211 @@ flowchart TB
     Agent -->|machine key + job lease| Routes
 ```
 
-## OOP LLD class diagram
+## Implemented OOP LLD class diagram
+
+The application layer now contains explicit use cases and structural ports. The
+PostgreSQL repository implements those operations while keeping transactions,
+account locks, usage quotas and transactional outbox writes inside the database
+adapter. Access snapshots and principals are immutable.
+
+```mermaid
+classDiagram
+    class PlatformRoutes {
+      <<FastAPI controllers>>
+      +authenticate()
+      +create_contribution()
+      +submit_research()
+      +get_agent_context()
+    }
+    class AccountService {
+      +signup(email, name, password)
+      +login(email, password)
+      +change_password(user, current, next)
+      +bootstrap_developer()
+    }
+    class AccountAdministrationService {
+      +bootstrap_developer()
+      +update_user(actor, user_id, changes)
+      +revoke_sessions(actor, user_id)
+    }
+    class EntitlementService {
+      +access(user_id) AccessSnapshot
+      +check(user, feature, tickers) AccessSnapshot
+      +select(user, tickers)
+      +usage(user)
+    }
+    class AccessSnapshot {
+      <<immutable value object>>
+      -Principal principal
+      -PlanPolicy policy
+      -tuple tickers
+      +allows(feature)
+      +require(feature, tickers, single)
+      +require_job(job)
+    }
+    class PlanPolicy {
+      <<immutable value object>>
+      +plan
+      +active_stock_limit
+      +monthly_alert_limit
+      +frozenset features
+      +revision
+    }
+    class Principal {
+      <<immutable value object>>
+      +UUID id
+      +tuple roles
+      +plan
+      +is_developer
+      +disabled
+    }
+    class ContributionService {
+      +create(user, content, idempotency_key)
+      +add_version(user, contribution_id, content)
+      +submit(user, contribution_id, revision)
+      +review(reviewer, contribution_id, decision)
+      +retract(user, contribution_id, revision)
+    }
+    class ResearchSubmissionService {
+      +submit(user, request, key, kind, conversation_id)
+    }
+    class AgentContextService {
+      +stock_context(job, lease, ticker, window, access)
+      +search_documents(job, lease, ticker, query, access)
+    }
+    class BrokerConnectionService {
+      +connect(user, token)
+      +status(user_id)
+      +disconnect(user_id)
+      +read(user_id, path, params)
+    }
+    class BrokerVault {
+      -SecretStr key
+      +encrypt(owner_id, token) bytes
+      +decrypt(owner_id, ciphertext) SecretStr
+    }
+    class DataClientPort {
+      <<Protocol>>
+      +get(path, params, headers)
+      +validate_ticker(ticker)
+      +validate_citations(content)
+    }
+    class GraphClientPort {
+      <<Protocol>>
+      +get(path, params, evidence_scope, developer)
+      +request(method, path, body, params)
+    }
+    class AccountRepositoryPort {
+      <<Protocol>>
+      +create_account(...)
+      +create_login_session(...)
+      +update_account(...)
+      +revoke_account_sessions(...)
+    }
+    class AccessRepositoryPort {
+      <<Protocol>>
+      +load_access_snapshot(user_id)
+      +replace_active_stocks(user_id, tickers)
+      +usage_summary(user_id)
+    }
+    class BrokerRepositoryPort {
+      <<Protocol>>
+      +save_broker_credential(user_id, ciphertext)
+      +read_broker_credential(user_id)
+      +disconnect_broker(user_id)
+    }
+    class ContributionRepositoryPort {
+      <<Protocol>>
+      +create_contribution(...)
+      +review(...)
+      +retract(...)
+    }
+    class JobRepositoryPort {
+      <<Protocol>>
+      +create_research_job(...)
+      +reserve_tool_call(...)
+      +register_evidence(...)
+    }
+    class EvidenceRepositoryPort {
+      <<Protocol>>
+      +published(ticker, limit, offset)
+      +current_professional_evidence(version_id)
+    }
+    class AuditRepositoryPort {
+      <<Protocol>>
+      +audit_action(actor_id, action, target_id, details)
+    }
+    class CredentialVaultPort {
+      <<Protocol>>
+      +encrypt(owner_id, token)
+      +decrypt(owner_id, ciphertext)
+    }
+    class Repository {
+      <<PostgreSQL adapter>>
+      +health_check()
+      +write_outbox_event(connection, event)
+      +claim_outbox()
+      +finish_outbox(event_id, lease_id)
+    }
+    class HttpDataClient {
+      <<HTTP adapter>>
+      +get(path, params, headers)
+      +post_internal(path, payload)
+      +patch_internal(path, payload)
+      +validate_ticker(ticker)
+    }
+    class HttpGraphClient {
+      <<HTTP adapter>>
+      +get(path, params, evidence_scope, developer)
+      +request(method, path, body, params)
+    }
+    class AgentRepositoryModule {
+      <<job lifecycle adapter functions>>
+      +claim_job()
+      +heartbeat()
+      +complete_job()
+      +schedule_due_monitors()
+    }
+
+    PlatformRoutes --> AccountService
+    PlatformRoutes --> AccountAdministrationService
+    PlatformRoutes --> EntitlementService
+    PlatformRoutes --> ContributionService
+    PlatformRoutes --> ResearchSubmissionService
+    PlatformRoutes --> AgentContextService
+    PlatformRoutes --> BrokerConnectionService
+    AccountAdministrationService --> AccountService
+    EntitlementService --> AccessRepositoryPort
+    EntitlementService --> AccessSnapshot
+    AccessSnapshot *-- Principal
+    AccessSnapshot *-- PlanPolicy
+    AccountService --> AccountRepositoryPort
+    ContributionService --> ContributionRepositoryPort
+    ContributionService --> DataClientPort
+    ResearchSubmissionService --> EntitlementService
+    ResearchSubmissionService --> JobRepositoryPort
+    ResearchSubmissionService --> DataClientPort
+    ResearchSubmissionService --> AuditRepositoryPort
+    AgentContextService --> JobRepositoryPort
+    AgentContextService --> EvidenceRepositoryPort
+    AgentContextService --> DataClientPort
+    AgentContextService --> GraphClientPort
+    BrokerConnectionService --> BrokerRepositoryPort
+    BrokerConnectionService --> CredentialVaultPort
+    BrokerConnectionService --> DataClientPort
+    BrokerVault ..|> CredentialVaultPort
+    HttpDataClient ..|> DataClientPort
+    HttpGraphClient ..|> GraphClientPort
+    Repository ..|> AccountRepositoryPort
+    Repository ..|> AccessRepositoryPort
+    Repository ..|> BrokerRepositoryPort
+    Repository ..|> ContributionRepositoryPort
+    Repository ..|> JobRepositoryPort
+    Repository ..|> EvidenceRepositoryPort
+    Repository ..|> AuditRepositoryPort
+```
+
+## Original baseline class diagram (historical)
 
 ```mermaid
 classDiagram

@@ -1,13 +1,13 @@
 """Context cards from the committed Falkor projection, not a seed file."""
 
-from typing import Any
-
+from stockgraph.application.ports import GuidanceReader, StockProfileReader
 from stockgraph.domain.schemas import StockContextCard
 
 
 class StockProfileProvider:
-    def __init__(self, repo: Any) -> None:
+    def __init__(self, repo: StockProfileReader, guidance: GuidanceReader | None = None) -> None:
         self._repo = repo
+        self._guidance = guidance
 
     def build_context_card(self, ticker: str) -> StockContextCard:
         profile = self._repo.get_entity("Stock", ticker.upper())
@@ -15,9 +15,8 @@ class StockProfileProvider:
             raise KeyError(f"Unknown registered stock {ticker!r}")
         guidance = profile.get("latest_guidance_highlights", [])
         # Pure narrative chunks from committed source documents, never SQL financial series.
-        if hasattr(self._repo, "_run"):
-            from stockgraph.adapters.repositories.falkor.professional import EvidenceRepository
-            guidance = EvidenceRepository(self._repo).guidance_highlights(ticker.upper()) or guidance
+        if self._guidance is not None:
+            guidance = self._guidance.guidance_highlights(ticker.upper()) or guidance
         return StockContextCard(
             ticker=ticker.upper(),
             business_summary=profile.get("business_summary"),

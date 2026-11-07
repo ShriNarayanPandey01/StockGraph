@@ -17,7 +17,7 @@ from marketgraph_platform.account_api import build_account_router
 from marketgraph_platform.accounts import Accounts, profile, verify_password
 from marketgraph_platform.auth import current_user, token_digest
 from marketgraph_platform.models import Principal
-from marketgraph_platform.repository import PlatformError
+from marketgraph_platform.repository import PlatformError, Repository
 from marketgraph_platform.settings import Settings
 from pydantic import SecretStr
 
@@ -111,8 +111,9 @@ class Memory:
 @pytest.fixture
 def accounts(monkeypatch):
     monkeypatch.setattr(module, '_PASSWORDS', PasswordHasher(time_cost=1, memory_cost=1024, parallelism=1))
-    repo = SimpleNamespace(pool=Memory(), settings=Settings(_env_file=None), _event=AsyncMock())
-    return Accounts(repo), repo
+    repo = Repository(Settings(_env_file=None))
+    repo.pool = Memory()
+    return Accounts(repo, repo.settings), repo
 
 
 @pytest.mark.asyncio
@@ -187,13 +188,13 @@ async def test_bearer_accepts_active_account_and_rejects_disabled(accounts):
 @pytest.mark.asyncio
 async def test_developer_bootstrap_creates_account_and_rotates_sessions(accounts):
     account, repo = accounts
-    account.settings.admin_email = 'admin@example.test'
-    account.settings.admin_password = SecretStr('developer long password')
+    repo.settings.admin_email = 'admin@example.test'
+    repo.settings.admin_password = SecretStr('developer long password')
     await account.bootstrap_developer()
     row = next(iter(repo.pool.users.values()))
     assert row['is_developer'] and row['plan'] == 'PRO'
     assert verify_password(row['password_hash'], 'developer long password')
     session = await account.login(row['email'], 'developer long password', 'ip')
-    account.settings.admin_password = SecretStr('rotated developer password')
+    repo.settings.admin_password = SecretStr('rotated developer password')
     await account.bootstrap_developer()
     assert repo.pool.tokens[token_digest(session['access_token'])]['revoked_at']

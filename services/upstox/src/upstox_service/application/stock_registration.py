@@ -1,21 +1,25 @@
 """Background registration orchestration; API requests never wait for providers."""
 
 import asyncio
-from typing import Protocol
 
-from upstox_service.adapters.providers.upstox.client import ProviderError
-from upstox_service.domain.models import CompanyBundle, StockRegistration
+from upstox_service.application.errors import ProviderError
+from upstox_service.application.ports import CompanyProviderPort, RegistrationJobPort
+from upstox_service.domain.models import StockRegistration
 
 
-class CompanyProvider(Protocol):
-    async def fetch_company(self, request: StockRegistration) -> CompanyBundle: ...
+class StockRegistrationSubmissionService:
+    def __init__(self, jobs: RegistrationJobPort) -> None:
+        self._jobs = jobs
+
+    async def submit(self, request: StockRegistration) -> dict:
+        return await self._jobs.create_job(request)
 
 
 class RegistrationWorker:
     def __init__(
         self,
-        repository,
-        provider: CompanyProvider,
+        repository: RegistrationJobPort,
+        provider: CompanyProviderPort,
         *,
         max_attempts: int = 3,
         lease_seconds: int = 600,

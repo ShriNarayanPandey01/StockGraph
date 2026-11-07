@@ -19,8 +19,6 @@ from typing import Literal
 
 import yaml
 
-from upstox_service.config.settings import settings
-
 DEFAULT_SEED_PATH = Path(__file__).resolve().parents[1] / "resources" / "ontology_seed.yaml"
 
 RegistryKind = Literal["commodity", "macro", "sector"]
@@ -44,7 +42,7 @@ def normalize(text: str) -> str:
     return re.sub(r"\s+", " ", cleaned).strip()
 
 
-@dataclass
+@dataclass(frozen=True)
 class ResolvedRegistry:
     kind: RegistryKind
     id: str
@@ -54,15 +52,15 @@ class ResolvedRegistry:
 class CanonicalEntityResolver:
     """In-memory alias -> canonical-ID maps built once from the YAML registry."""
 
-    stocks_by_key: dict[str, str] = field(default_factory=dict)  # norm key -> ticker
-    tickers: set[str] = field(default_factory=set)
-    isins: dict[str, str] = field(default_factory=dict)  # upper ISIN -> ticker
-    stock_names: dict[str, str] = field(default_factory=dict)  # ticker -> registry name
-    registry_by_key: dict[str, ResolvedRegistry] = field(default_factory=dict)
-    registry_labels: dict[str, str] = field(default_factory=dict)  # registry id -> label
-    commodities: set[str] = field(default_factory=set)
-    macros: set[str] = field(default_factory=set)
-    sectors: set[str] = field(default_factory=set)
+    _stocks_by_key: dict[str, str] = field(default_factory=dict, init=False, repr=False)  # norm key -> ticker
+    _tickers: set[str] = field(default_factory=set, init=False, repr=False)
+    _isins: dict[str, str] = field(default_factory=dict, init=False, repr=False)  # upper ISIN -> ticker
+    _stock_names: dict[str, str] = field(default_factory=dict, init=False, repr=False)  # ticker -> registry name
+    _registry_by_key: dict[str, ResolvedRegistry] = field(default_factory=dict, init=False, repr=False)
+    _registry_labels: dict[str, str] = field(default_factory=dict, init=False, repr=False)  # registry id -> label
+    _commodities: set[str] = field(default_factory=set, init=False, repr=False)
+    _macros: set[str] = field(default_factory=set, init=False, repr=False)
+    _sectors: set[str] = field(default_factory=set, init=False, repr=False)
 
     @classmethod
     def from_catalog(cls, rows: list[dict]) -> CanonicalEntityResolver:
@@ -72,27 +70,27 @@ class CanonicalEntityResolver:
             entity = row["payload"]
             if row["kind"] == "Stock":
                 ticker = entity["ticker"]
-                inst.tickers.add(ticker)
-                inst.stock_names[ticker] = entity.get("name", ticker)
+                inst._tickers.add(ticker)
+                inst._stock_names[ticker] = entity.get("name", ticker)
                 for alias in [ticker, entity.get("name", ""), *entity.get("aliases", [])]:
                     if alias:
-                        inst.stocks_by_key.setdefault(normalize(alias), ticker)
+                        inst._stocks_by_key.setdefault(normalize(alias), ticker)
                 if entity.get("isin"):
-                    inst.isins[entity["isin"].upper()] = ticker
+                    inst._isins[entity["isin"].upper()] = ticker
             else:
                 kind = {"Commodity": "commodity", "MacroFactor": "macro", "Sector": "sector"}[
                     row["kind"]
                 ]
                 rid = entity["id"]
                 getattr(
-                    inst, {"commodity": "commodities", "macro": "macros", "sector": "sectors"}[kind]
+                    inst, {"commodity": "_commodities", "macro": "_macros", "sector": "_sectors"}[kind]
                 ).add(rid)
                 for alias in [rid, entity.get("name", ""), *entity.get("aliases", [])]:
                     if alias:
-                        inst.registry_by_key.setdefault(
+                        inst._registry_by_key.setdefault(
                             normalize(alias), ResolvedRegistry(kind, rid)
                         )
-                inst.registry_labels[rid] = entity.get("name", rid)
+                inst._registry_labels[rid] = entity.get("name", rid)
         return inst
 
     @classmethod
@@ -102,14 +100,14 @@ class CanonicalEntityResolver:
         inst = cls()
         for stock in seed.get("stocks", []):
             ticker = stock["ticker"]
-            inst.tickers.add(ticker)
-            inst.stock_names[ticker] = str(stock.get("name") or ticker)
-            inst.stocks_by_key[normalize(ticker)] = ticker
+            inst._tickers.add(ticker)
+            inst._stock_names[ticker] = str(stock.get("name") or ticker)
+            inst._stocks_by_key[normalize(ticker)] = ticker
             if stock.get("isin"):
-                inst.isins[str(stock["isin"]).upper()] = ticker
+                inst._isins[str(stock["isin"]).upper()] = ticker
             for alias in [stock.get("name", ""), *stock.get("aliases", [])]:
-                if alias and normalize(alias) not in inst.stocks_by_key:
-                    inst.stocks_by_key[normalize(alias)] = ticker
+                if alias and normalize(alias) not in inst._stocks_by_key:
+                    inst._stocks_by_key[normalize(alias)] = ticker
         for section, kind in (
             ("commodities", "commodity"),
             ("macro_factors", "macro"),
@@ -117,11 +115,11 @@ class CanonicalEntityResolver:
         ):
             for entry in seed.get(section, []):
                 rid = entry["id"]
-                getattr(inst, kind + "s" if kind != "commodity" else "commodities").add(rid)
-                inst.registry_by_key.setdefault(normalize(rid), ResolvedRegistry(kind, rid))  # type: ignore[arg-type]
+                getattr(inst, "_" + (kind + "s" if kind != "commodity" else "commodities")).add(rid)
+                inst._registry_by_key.setdefault(normalize(rid), ResolvedRegistry(kind, rid))  # type: ignore[arg-type]
                 for alias in [entry.get("name", ""), *entry.get("aliases", [])]:
-                    if alias and normalize(alias) not in inst.registry_by_key:
-                        inst.registry_by_key[normalize(alias)] = ResolvedRegistry(kind, rid)  # type: ignore[arg-type]
+                    if alias and normalize(alias) not in inst._registry_by_key:
+                        inst._registry_by_key[normalize(alias)] = ResolvedRegistry(kind, rid)  # type: ignore[arg-type]
                 # A human label for the prompt catalog: the name plus the one
                 # line that explains what moves it.
                 label = str(entry.get("name") or rid)
@@ -131,7 +129,7 @@ class CanonicalEntityResolver:
                         label = f"{label} - {why[:140]}"
                 elif kind == "commodity" and entry.get("unit"):
                     label = f"{label} ({entry['unit']})"
-                inst.registry_labels[rid] = label
+                inst._registry_labels[rid] = label
         return inst
 
     def resolve_stock(self, text: str) -> str | None:
@@ -148,23 +146,11 @@ class CanonicalEntityResolver:
         raw = strip_exchange_suffix(text)
         if not raw:
             return None
-        if raw.upper() in self.tickers:
+        if raw.upper() in self._tickers:
             return raw.upper()
-        if raw.upper() in self.isins:
-            return self.isins[raw.upper()]
-        return self.stocks_by_key.get(normalize(raw))
-
-    def provider_symbol(self, ticker: str) -> str:
-        """Canonical ticker -> provider symbol (`TATASTEEL` -> `TATASTEEL.NS`).
-
-        The inverse of the suffix stripping in `resolve_stock`. Returns ""
-        for an unknown ticker, so callers can filter without a second
-        resolution pass.
-        """
-        canonical = self.resolve_stock(ticker)
-        if canonical is None:
-            return ""
-        return f"{canonical}{settings.news_symbol_suffix}"
+        if raw.upper() in self._isins:
+            return self._isins[raw.upper()]
+        return self._stocks_by_key.get(normalize(raw))
 
     def list_stock_names(self) -> dict[str, str]:
         """Canonical ticker -> the registry's company name.
@@ -172,7 +158,7 @@ class CanonicalEntityResolver:
         Used to build provider search queries: a company's NAME is what a
         news article says, and it discriminates far better than its ticker.
         """
-        return dict(self.stock_names)
+        return dict(self._stock_names)
 
     def resolve_registry(self, text: str) -> ResolvedRegistry | None:
         """Resolve to a (kind, id) registry entry. None if unknown.
@@ -182,10 +168,10 @@ class CanonicalEntityResolver:
         """
         if not text or not text.strip():
             return None
-        hit = self.registry_by_key.get(normalize(text))
+        hit = self._registry_by_key.get(normalize(text))
         if hit is not None:
             return hit
-        if _FOREX_HINTS.search(text.lower()) and "USD_INR_FX" in self.macros:
+        if _FOREX_HINTS.search(text.lower()) and "USD_INR_FX" in self._macros:
             return ResolvedRegistry("macro", "USD_INR_FX")
         return None
 
@@ -198,16 +184,16 @@ class CanonicalEntityResolver:
         return reg.id if reg is not None else None
 
     def list_stocks(self) -> list[str]:
-        return sorted(self.tickers)
+        return sorted(self._tickers)
 
     def list_commodities(self) -> list[str]:
-        return sorted(self.commodities)
+        return sorted(self._commodities)
 
     def list_macros(self) -> list[str]:
-        return sorted(self.macros)
+        return sorted(self._macros)
 
     def list_sectors(self) -> list[str]:
-        return sorted(self.sectors)
+        return sorted(self._sectors)
 
     def registry_catalog(self) -> list[dict[str, str]]:
         """The registry the LLM is allowed to name, with human context.
@@ -219,12 +205,12 @@ class CanonicalEntityResolver:
         """
         catalog: list[dict[str, str]] = []
         for kind, ids in (
-            ("commodity", self.commodities),
-            ("macro", self.macros),
-            ("sector", self.sectors),
+            ("commodity", self._commodities),
+            ("macro", self._macros),
+            ("sector", self._sectors),
         ):
             for rid in sorted(ids):
-                label = self.registry_labels.get(rid, rid)
+                label = self._registry_labels.get(rid, rid)
                 catalog.append({"id": rid, "kind": kind, "label": label})
         return catalog
 

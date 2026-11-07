@@ -5,14 +5,14 @@ import copy
 import json
 from contextlib import asynccontextmanager
 from datetime import UTC, datetime, timedelta
-from types import SimpleNamespace
 from uuid import uuid4
 
 import pytest
 from marketgraph_platform.entitlements import Access, Entitlements, load_access, load_job_access
 from marketgraph_platform.models import Principal
 from marketgraph_platform.policy import FEATURES, access_policy, effective_plan, require_permission
-from marketgraph_platform.repository import PlatformError
+from marketgraph_platform.repository import PlatformError, Repository
+from marketgraph_platform.settings import Settings
 
 
 def principal(**changes):
@@ -177,7 +177,9 @@ async def test_selection_over_limit_preserves_previous_selection_and_valid_chang
     user=principal()
     pool=Pool(user)
     pool.active[user.id]={'INFY'}
-    entitlements=Entitlements(SimpleNamespace(pool=pool))
+    repository=Repository(Settings(_env_file=None))
+    repository.pool=pool
+    entitlements=Entitlements(repository)
     with pytest.raises(PlatformError) as denied:
         await entitlements.select(user,[f'STOCK{i}' for i in range(11)])
     assert denied.value.status==403 and pool.active[user.id]=={'INFY'}
@@ -191,7 +193,9 @@ async def test_selection_over_limit_preserves_previous_selection_and_valid_chang
 async def test_developer_can_select_more_than_policy_limit_and_missing_accounts_fail_closed():
     dev=principal(is_developer=True)
     pool=Pool(dev)
-    entitlements=Entitlements(SimpleNamespace(pool=pool))
+    repository=Repository(Settings(_env_file=None))
+    repository.pool=pool
+    entitlements=Entitlements(repository)
     result=await entitlements.select(dev,[f'STOCK{i}' for i in range(25)])
     assert len(result['tickers'])==25
     with pytest.raises(PlatformError):

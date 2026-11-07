@@ -1,8 +1,6 @@
 """Independent REST API for registration and SQL-only financial reads."""
 
 from contextlib import asynccontextmanager
-from dataclasses import replace
-from hashlib import sha256
 from uuid import UUID
 
 from fastapi import FastAPI, HTTPException
@@ -15,20 +13,21 @@ from upstox_service.adapters.api.credentials import ScopedMarketProvider, instal
 from upstox_service.adapters.api.document_routes import build_document_router
 from upstox_service.adapters.api.market_routes import create_market_router
 from upstox_service.adapters.api.stock_routes import create_stock_router
-from upstox_service.adapters.providers.news.adapters import (
-    ProviderFetchResult,
-    ProviderStatus,
-    StagedNewsItem,
-)
+from upstox_service.adapters.providers.news.eligibility import StockGraphEligibilityReviewer
 from upstox_service.adapters.providers.upstox.client import ProviderError, UpstoxClient
 from upstox_service.adapters.providers.upstox.market import UpstoxMarketProvider
 from upstox_service.adapters.providers.upstox.stock_data import UpstoxStockDataProvider
+from upstox_service.adapters.repositories.timescale.application_stores import (
+    NewsRepository,
+    RegistrationRepository,
+)
 from upstox_service.adapters.repositories.timescale.catalog import DataRepository
 from upstox_service.adapters.repositories.timescale.documents import DocumentRepository
 from upstox_service.adapters.repositories.timescale.stock_data import init_stock_data_schema
 from upstox_service.application.ingestion.news_eligibility import NewsEligibilityGate
+from upstox_service.application.manual_news import ManualNewsSubmissionService
+from upstox_service.application.stock_registration import StockRegistrationSubmissionService
 from upstox_service.config.settings import Settings
-from upstox_service.domain.entities import NewsArticle
 from upstox_service.domain.enums import Window
 from upstox_service.domain.models import (
     AdminCatalogUpdate,
@@ -81,6 +80,10 @@ def create_app(repository=None, redis_client=None, config: Settings | None = Non
         ]})
 
     app.state.broker = redis_client
+    registration = StockRegistrationSubmissionService(RegistrationRepository(repository))
+    manual_news = ManualNewsSubmissionService(
+        NewsRepository(repository), NewsEligibilityGate(StockGraphEligibilityReviewer(config=config))
+    )
     install_internal_boundary(app, config)
     app.include_router(create_stock_router(repository, stock_provider, redis_client, config))
     app.include_router(build_document_router(repository, redis_client, config))
@@ -117,8 +120,7 @@ def create_app(repository=None, redis_client=None, config: Settings | None = Non
     @app.get("/ready")
     async def ready():
         try:
-            pool = getattr(repository, "_pool", None)
-            if pool is None or await pool.fetchval("SELECT 1") != 1:
+            if not await repository.health_check():
                 raise RuntimeError("TimescaleDB is unavailable")
             await redis_client.ping()
         except Exception:
@@ -127,7 +129,7 @@ def create_app(repository=None, redis_client=None, config: Settings | None = Non
 
     @app.post("/api/v1/stocks", status_code=202)
     async def register(request: StockRegistration):
-        return await repository.create_job(request)
+        return await registration.submit(request)
 
     @app.get("/api/v1/jobs/{job_id}")
     async def get_job(job_id: UUID):
@@ -167,66 +169,10 @@ def create_app(repository=None, redis_client=None, config: Settings | None = Non
 
     @app.post("/api/v1/manual/news", status_code=202)
     async def submit_manual_news(request: ManualNewsInput):
-        """Stage a human-supplied article and enqueue normal graph processing.
-
-        This is deliberately source-owned: the raw payload, normalized news
-        record, eligibility decision, and outbox event commit in one SQL
-        transaction.  The Graph service never receives a direct graph-write
-        escape hatch.
-        """
-        mentioned_tickers = list(dict.fromkeys([*request.tickers, *request.ticker_sentiment]))
-        unknown = [
-            ticker
-            for ticker in mentioned_tickers
-            if await repository.get_entity(EntityKind.STOCK.value, ticker) is None
-        ]
-        if unknown:
-            raise HTTPException(422, f"Unknown registered ticker(s): {', '.join(unknown)}")
-        if set(request.ticker_sentiment) - set(request.tickers):
-            raise HTTPException(422, "ticker_sentiment keys must also be present in tickers")
-
-        published_at = request.published_at
-        external_id = request.external_id or "manual-" + sha256(
-            request.source_url.encode("utf-8")
-        ).hexdigest()[:40]
-        article = NewsArticle(
-            external_id=external_id,
-            headline=request.headline,
-            summary=request.summary,
-            source_url=request.source_url,
-            source=request.source,
-            published_at=published_at,
-            category=request.category,
-            sentiment=request.sentiment,
-            tickers=tuple(request.tickers),
-            ticker_sentiment=request.ticker_sentiment,
-        )
-        decision = await NewsEligibilityGate().decide(article)
-        if not decision.approved or decision.category is None:
-            raise HTTPException(422, f"Manual news rejected: {decision.reason}")
-        approved_article = replace(article, category=decision.category)
-        raw_payload = request.model_dump(mode="json", exclude_none=True)
-        raw_payload["external_id"] = external_id
-        result = ProviderFetchResult(
-            provider_id="MANUAL",
-            status=ProviderStatus.AVAILABLE,
-            articles=(approved_article,),
-            staged=(
-                StagedNewsItem(
-                    external_id=external_id,
-                    published_at=published_at,
-                    source_url=request.source_url,
-                    payload=raw_payload,
-                ),
-            ),
-            approvals={external_id: (decision.source, decision.reason)},
-        )
-        changed = await repository.commit_news(result)
-        return {
-            "external_id": external_id,
-            "state": "queued" if changed else "unchanged",
-            "eligibility": {"source": decision.source, "reason": decision.reason},
-        }
+        try:
+            return await manual_news.submit(request)
+        except ValueError as exc:
+            raise HTTPException(422, str(exc)) from exc
 
     @app.get("/api/v1/stocks/{ticker}/financials")
     async def financials(ticker: str, window: Window):

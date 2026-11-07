@@ -20,7 +20,7 @@ from marketgraph_platform.brokers import (
     build_broker_router,
 )
 from marketgraph_platform.models import Principal
-from marketgraph_platform.repository import PlatformError
+from marketgraph_platform.repository import PlatformError, Repository
 from marketgraph_platform.settings import Settings
 from pydantic import SecretStr, ValidationError
 
@@ -110,7 +110,9 @@ def broker_setup():
     pool=Pool(alice,bob)
     client=SimpleNamespace(post_internal=AsyncMock(return_value={'valid':True}),get=AsyncMock(return_value={'items':[]}))
     settings=Settings(_env_file=None,broker_encryption_key=SecretStr(Fernet.generate_key().decode()))
-    brokers=BrokerConnections(SimpleNamespace(pool=pool),settings,client)
+    repository=Repository(settings)
+    repository.pool=pool
+    brokers=BrokerConnections(repository,settings,client)
     return brokers,pool,client,alice,bob
 
 

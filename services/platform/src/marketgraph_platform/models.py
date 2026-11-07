@@ -12,13 +12,15 @@ class Input(BaseModel):
 
 
 class Principal(Input):
+    model_config = ConfigDict(extra="forbid", str_strip_whitespace=True, frozen=True)
+
     id: UUID
     name: str
     professional_verified: bool = False
     email: str | None = None
     is_developer: bool = False
     disabled: bool = False
-    roles: list[Literal["USER", "PROFESSIONAL", "REVIEWER"]] = Field(default_factory=lambda: ["USER"])
+    roles: tuple[Literal["USER", "PROFESSIONAL", "REVIEWER"], ...] = Field(default_factory=lambda: ("USER",))
     plan: Literal["FREE", "PRO"] = "FREE"
     plan_expires_at: datetime | None = None
     active_selection_initialized: bool = False

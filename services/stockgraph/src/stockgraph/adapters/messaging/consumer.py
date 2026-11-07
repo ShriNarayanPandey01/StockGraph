@@ -12,6 +12,7 @@ from typing import Any
 
 from pydantic import ValidationError
 from redis.exceptions import ResponseError
+from stockgraph.application.ports import GraphEventProcessor, GraphWriteControl
 from stockgraph.domain.events import CommittedEvent
 from stockgraph.runtime.settings import settings
 
@@ -62,8 +63,10 @@ def renewable_lock(redis: Any):
 
 
 class EventConsumer:
-    def __init__(self, redis: Any, pipeline: Any, consumer_name: str | None = None) -> None:
+    def __init__(self, redis: Any, pipeline: GraphEventProcessor, consumer_name: str | None = None,
+                 *, repo: GraphWriteControl) -> None:
         self._redis, self._pipeline = redis, pipeline
+        self._repo = repo
         self._name = consumer_name or f"graph-{uuid.uuid4().hex[:12]}"
         self._claim_cursor = "0-0"
 
@@ -120,9 +123,8 @@ class EventConsumer:
             with renewable_lock(self._redis) as acquired:
                 if not acquired:
                     return False
-                repo = self._pipeline._repo
-                if callable(acquired) and hasattr(repo, "set_write_guard"):
-                    repo.set_write_guard(acquired)
+                if callable(acquired):
+                    self._repo.set_write_guard(acquired)
                 try:
                     self._state(event, "graph_processing")
                     self._pipeline.process(event)
@@ -130,7 +132,7 @@ class EventConsumer:
                     if callable(acquired):
                         acquired()  # Do not let an expired lease overwrite another worker.
                     error = f"{type(exc).__name__}: graph processing failed; event remains queued for retry"
-                    from stockgraph.adapters.llm.base import BudgetExceeded, LLMDisabled
+                    from stockgraph.application.errors import BudgetExceeded, LLMDisabled
 
                     if isinstance(exc, (BudgetExceeded, LLMDisabled)):
                         error = str(exc)
@@ -142,11 +144,10 @@ class EventConsumer:
                         "MacroFactor",
                         "Sector",
                     ):
-                        repo.mark_entity_failed(event.payload["kind"], event.entity_id)
+                        self._repo.mark_entity_failed(event.payload["kind"], event.entity_id)
                     return quarantined
                 finally:
-                    if hasattr(repo, "set_write_guard"):
-                        repo.set_write_guard(None)
+                    self._repo.set_write_guard(None)
             self._state(event, "completed")
             self._ack(message_id)
             return True
@@ -170,7 +171,7 @@ class EventConsumer:
                     "MacroFactor",
                     "Sector",
                 ):
-                    self._pipeline._repo.mark_entity_failed(event.payload["kind"], event.entity_id)
+                    self._repo.mark_entity_failed(event.payload["kind"], event.entity_id)
             else:
                 self._redis.hset("stockgraph:invalid-events", str(message_id), error)
             return quarantined

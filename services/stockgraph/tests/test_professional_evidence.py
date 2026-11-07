@@ -5,6 +5,7 @@ import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 from stockgraph.adapters.api.evidence_routes import build_evidence_router
+from stockgraph.adapters.repositories.falkor.professional import EvidenceRepository
 from stockgraph.application.professional import EvidencePipeline, professional_context
 from stockgraph.domain.platform_events import PlatformEvent
 
@@ -43,7 +44,7 @@ class MemoryProjection:
 
 def test_retraction_tombstone_blocks_out_of_order_publication():
     repo = MemoryProjection()
-    pipeline = EvidencePipeline(repo)
+    pipeline = EvidencePipeline(EvidenceRepository(repo))
     old = publication()
     retract = PlatformEvent(event_id=uuid4(), kind="professional.retracted", entity_id=old.entity_id,
         revision=2, occurred_at=datetime.now(UTC), payload={"ticker": "TCS", "reason": "Correction"})
@@ -57,12 +58,12 @@ def test_projection_is_idempotent_and_does_not_invent_canonical_stocks():
     event = publication()
     repo.exists = False
     with pytest.raises(KeyError):
-        EvidencePipeline(repo).process(event)
+        EvidencePipeline(EvidenceRepository(repo)).process(event)
     assert repo.current == {}
     repo.exists = True
-    assert EvidencePipeline(repo).process(event) is True
+    assert EvidencePipeline(EvidenceRepository(repo)).process(event) is True
     writes = len(repo.queries)
-    assert EvidencePipeline(repo).process(event) is False
+    assert EvidencePipeline(EvidenceRepository(repo)).process(event) is False
     assert len(repo.queries) == writes + 1
     assert any("SUPERSEDES" in q for q, _ in repo.queries)
 
@@ -112,7 +113,7 @@ def test_guidance_embeddings_use_native_vectors_and_preserve_source_locator():
         def embed_one(self, text):
             assert text == "Demand expected to improve"
             return [1.0, 0.0]
-    EvidencePipeline(repo, Embedder()).process(event)
+    EvidencePipeline(EvidenceRepository(repo), Embedder()).process(event)
     assert any("vecf32($embedding)" in q for q, _ in repo.queries)
     chunk = next(params["props"] for q, params in repo.queries if "DocumentChunk:GuidanceChunk" in q)
     assert chunk["locator"].startswith("page 2")
@@ -214,7 +215,7 @@ def test_professional_event_calendar_date_uses_ist():
     repo = MemoryProjection()
     event = publication()
     event = event.model_copy(update={"payload": {**event.payload, "event_at": "2026-10-23T20:00:00+00:00"}})
-    EvidencePipeline(repo).process(event)
+    EvidencePipeline(EvidenceRepository(repo)).process(event)
     stored = next(params["props"] for query, params in repo.queries if "MERGE (p:ProfessionalEvidence" in query)
     assert stored["event_date"] == "2026-10-24"
 
@@ -270,10 +271,10 @@ def test_out_of_order_guidance_does_not_replace_latest_prompt_context():
             "version_id": str(uuid4()), "document_id": document_id, "content_hash": str(revision)*64,
             "title": "Concall", "source_url": "https://example.org/concall", "document_kind": "GUIDANCE",
             "chunks": [{"id": f"chunk:{revision}", "text": text, "page": 1, "ordinal": 0, "locator": "page 1"}]})
-    pipeline = EvidencePipeline(repo)
+    pipeline = EvidencePipeline(EvidenceRepository(repo))
     pipeline.process(document(2, "New guidance"))
     pipeline.process(document(1, "Superseded guidance"))
-    card = StockProfileProvider(repo).build_context_card("TCS")
+    card = StockProfileProvider(repo, EvidenceRepository(repo)).build_context_card("TCS")
     assert card.latest_guidance_highlights == ["New guidance"]
     assert card.latest_quarter_summary == "Current quarterly narrative"
     assert repo.record["revision"] == 2

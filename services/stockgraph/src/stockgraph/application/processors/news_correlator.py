@@ -13,10 +13,11 @@ import logging
 from typing import Any
 
 from pydantic import BaseModel, Field
-from stockgraph.adapters.llm.tokens import truncate_to_tokens
+from stockgraph.application.errors import InferenceError
 from stockgraph.domain.enums import CorrelationType, NewsCategory
 from stockgraph.domain.schemas import InferredNewsCorrelation
 from stockgraph.runtime.settings import settings
+from stockgraph.shared.tokens import truncate_to_tokens
 
 logger = logging.getLogger(__name__)
 
@@ -131,17 +132,14 @@ class NewsCorrelator:
         try:
             batch = self._chat.complete_json(prompt, NewsCorrelationBatch)
         except Exception as exc:
-            logger.warning("L4 LLM call failed for %s: %s", news_id, exc)
-            return []
+            raise InferenceError("LLM inference failed; event remains retryable") from exc
         if isinstance(batch, dict):
             try:
                 batch = NewsCorrelationBatch.model_validate(batch)
             except Exception as exc:
-                logger.warning("L4 output invalid for %s: %s", news_id, exc)
-                return []
+                raise InferenceError("LLM inference failed; event remains retryable") from exc
         if not isinstance(batch, NewsCorrelationBatch):
-            logger.warning("L4 rejected non-structured output for %s", news_id)
-            return []
+            raise InferenceError("LLM inference failed; event remains retryable")
         return self.filter_and_persist(
             repo, news_id, event_ts, batch.correlations, valid_prior_ids=[r["id"] for r in rows]
         )

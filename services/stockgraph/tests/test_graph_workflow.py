@@ -64,6 +64,9 @@ class Repo:
     def get_entity(self, kind, entity_id):
         return self.entities.get((kind, entity_id))
 
+    def set_write_guard(self, guard):
+        self.guard = guard
+
     def catalog(self):
         return {
             kind: [value for (label, _), value in self.entities.items() if label == kind]
@@ -116,6 +119,13 @@ class Repo:
 
     def merge_news_shock(self, news_id, kind, entity_id, *args, **kwargs):
         self.shocks.append((news_id, entity_id))
+
+    def reconcile_news_impacts(self, news_id, scope_tickers, stock_impacts, market_impacts):
+        self.impacts = [row for row in self.impacts
+                        if row[0] != news_id or row[1] not in scope_tickers]
+        self.shocks = [row for row in self.shocks if row[0] != news_id]
+        self.impacts.extend((news_id, row["ticker"], row["impact_type"]) for row in stock_impacts)
+        self.shocks.extend((news_id, row["entity_id"]) for row in market_impacts)
 
     def find_correlation_candidates(self, *args, **kwargs):
         return []
@@ -291,14 +301,15 @@ def test_worker_acknowledges_only_success_and_recovers_failed_event(monkeypatch)
 
     monkeypatch.setattr(consumer_module, "renewable_lock", no_lock)
     repo, broker = Repo(), Broker()
-    pipeline = GraphPipeline(repo, broker, Chat(fail=True), Embedder())
-    consumer = EventConsumer(broker, pipeline)
+    chat = Chat(fail=True)
+    pipeline = GraphPipeline(repo, broker, chat, Embedder())
+    consumer = EventConsumer(broker, pipeline, repo=repo)
     event = make_event()
     fields = {"event": event.model_dump_json()}
     assert not consumer.handle("1-0", fields)
     assert not broker.acks
     assert broker.hashes[f"stockgraph:job:{event.job_id}"]["state"] == "failed"
-    pipeline._chat = Chat()
+    chat.fail = False
     assert consumer.handle("1-0", fields)
     assert broker.acks == ["1-0"]
     assert broker.hashes[f"stockgraph:job:{event.job_id}"]["state"] == "completed"
@@ -603,7 +614,8 @@ def test_stream_pending_entries_are_recovered_before_new_reads():
         [("1-0", {"event": event.model_dump_json()})],
         [],
     ]
-    consumer = EventConsumer(broker, GraphPipeline(Repo(), broker, Chat(), Embedder()))
+    repo = Repo()
+    consumer = EventConsumer(broker, GraphPipeline(repo, broker, Chat(), Embedder()), repo=repo)
     captured = []
     consumer.handle = lambda message_id, fields: captured.append(message_id) or True
     assert consumer.run_once() == 1
@@ -622,7 +634,7 @@ def test_dotenv_api_key_is_passed_privately_to_llm_and_embeddings(monkeypatch):
     calls = []
 
     def completion(**kwargs):
-        calls.append(kwargs)
+        calls.append(kwargs.get("api_key") == secret.get_secret_value())
         return SimpleNamespace(
             choices=[
                 SimpleNamespace(
@@ -633,7 +645,7 @@ def test_dotenv_api_key_is_passed_privately_to_llm_and_embeddings(monkeypatch):
         )
 
     def embedding(**kwargs):
-        calls.append(kwargs)
+        calls.append(kwargs.get("api_key") == secret.get_secret_value())
         return SimpleNamespace(data=[{"embedding": [1.0, 0.0]}])
 
     monkeypatch.setitem(
@@ -648,10 +660,11 @@ def test_dotenv_api_key_is_passed_privately_to_llm_and_embeddings(monkeypatch):
     monkeypatch.setattr(settings, "llm_provider", "legacy")
     monkeypatch.setattr(settings, "llm_chat_model", "gpt-4o-mini")
     monkeypatch.setattr(settings, "openai_api_key", secret)
+    monkeypatch.setattr(settings, "embedding_model", "text-embedding-3-small")
     monkeypatch.setattr(settings, "embedding_dimension", 2)
     LiteLLMChatProvider().complete_json("test", NewsImpactBatch)
     LiteLLMEmbeddingProvider().embed_one("test")
-    assert len(calls) == 2 and all(call["api_key"] == secret.get_secret_value() for call in calls)
+    assert len(calls) == 2 and all(calls)
     assert secret.get_secret_value() not in repr(Settings(_env_file=None, openai_api_key=secret))
 
 

@@ -20,11 +20,11 @@ import time
 from typing import Any
 
 from pydantic import BaseModel, Field
-from stockgraph.adapters.llm.tokens import count_tokens, truncate_to_tokens
 from stockgraph.application.processors.news_graph_extractor import render_card
 from stockgraph.domain.enums import OntologyRelationType
 from stockgraph.domain.schemas import InferredOntologyEdge, StockContextCard
 from stockgraph.runtime.settings import settings
+from stockgraph.shared.tokens import count_tokens, truncate_to_tokens
 
 logger = logging.getLogger(__name__)
 
@@ -86,12 +86,7 @@ class DynamicOntologyBuilder:
         """Prompt LLM with StockContextCard and return validated, resolver-gated edges."""
         now = now_ts or int(time.time())
         # Compile candidate registry IDs for prompt guidance
-        available = sorted(
-            self._resolver.commodities
-            | self._resolver.macros
-            | self._resolver.sectors
-            | self._resolver.tickers
-        )
+        available = self._resolver.all_entity_ids()
         from stockgraph.application.processors.batching import compact_card
 
         card = compact_card(card)

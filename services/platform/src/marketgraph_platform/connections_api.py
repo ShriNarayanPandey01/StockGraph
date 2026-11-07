@@ -4,11 +4,8 @@ from datetime import date
 from typing import Literal
 from urllib.parse import quote
 
-import httpx
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from pydantic import BaseModel, ConfigDict, Field
-
-from marketgraph_platform.agent_api import graph_get
 
 
 class StockRegistrationInput(BaseModel):
@@ -19,24 +16,6 @@ class StockRegistrationInput(BaseModel):
     business_exclusions: list[str] = Field(default_factory=list, max_length=30)
 
 
-async def graph_post(request: Request, path: str, payload: dict):
-    settings = request.app.state.settings
-    try:
-        async with httpx.AsyncClient(base_url=settings.graph_service_url,
-                                     timeout=settings.http_timeout_seconds,
-                                     headers={"X-Internal-Service-Key":settings.internal_service_key.get_secret_value(),
-                                              "X-MarketGraph-Developer":"true" if getattr(request.state,"user",None) and request.state.user.is_developer else "false"}) as client:
-            response = await client.post(path, json=payload)
-            if response.status_code in (400, 404, 409, 422):
-                raise HTTPException(response.status_code, 'Graph service rejected the request')
-            response.raise_for_status()
-            return response.json()
-    except HTTPException:
-        raise
-    except (httpx.HTTPError, ValueError):
-        raise HTTPException(503, 'Graph service is unavailable; retry the request') from None
-
-
 def build_connections_router(current_user):
     router = APIRouter(tags=['Stock connections'])
 
@@ -44,6 +23,14 @@ def build_connections_router(current_user):
         ticker = ticker.strip().upper()
         request.state.access = await request.app.state.entitlements.check(user, "stock_connections", [ticker])
         return ticker
+
+    async def graph_read(request, path, params):
+        access = getattr(request.state, "access", None)
+        return await request.app.state.graph_client.get(
+            path, params,
+            professional=bool(access and access.allows("professional_evidence")),
+            developer=bool(access and access.developer),
+        )
 
     @router.get('/api/v1/market/stocks')
     async def market_stocks(request: Request, user=Depends(current_user),
@@ -100,14 +87,16 @@ def build_connections_router(current_user):
     async def register_stock(body: StockRegistrationInput, request: Request,
                              user=Depends(current_user)):
         request.state.access = await request.app.state.entitlements.check(user)
-        result = await graph_post(request, '/api/v1/stocks', body.model_dump())
+        result = await request.app.state.graph_client.request(
+            "POST", "/api/v1/stocks", body=body.model_dump(), developer=user.is_developer
+        )
         await request.app.state.repository.measure(user.id, 'stock_registrations')
         return result
 
     @router.get('/api/v1/market/stock-registrations/{job_id}')
     async def registration_status(job_id: str, request: Request, user=Depends(current_user)):
         request.state.access = await request.app.state.entitlements.check(user)
-        result = await graph_get(request, f'/api/v1/jobs/{quote(job_id, safe="")}', {})
+        result = await graph_read(request, f'/api/v1/jobs/{quote(job_id, safe="")}', {})
         await request.app.state.repository.measure(user.id, 'stock_registration_status_reads')
         return result
 
@@ -125,7 +114,7 @@ def build_connections_router(current_user):
             params['as_of_ts']=as_of_ts
         if hops is not None:
             params['hops']=hops
-        result = await graph_get(request,f'/api/v1/stocks/{quote(ticker.strip().upper(),safe="")}/context',params)
+        result = await graph_read(request,f'/api/v1/stocks/{quote(ticker.strip().upper(),safe="")}/context',params)
         await request.app.state.repository.measure(user.id,'stock_connections')
         return result
 
@@ -141,8 +130,8 @@ def build_connections_router(current_user):
                         q: str=Query("",max_length=200),offset: int=Query(0,ge=0,le=10000),
                         limit: int=Query(50,ge=1,le=200)):
         ticker = await check_stock(request,user,ticker)
-        return await graph_get(request,f"/api/v1/stocks/{quote(ticker,safe='')}/documents/search",
-                               {"q":q,"offset":offset,"limit":limit})
+        return await graph_read(request,f"/api/v1/stocks/{quote(ticker,safe='')}/documents/search",
+                                {"q":q,"offset":offset,"limit":limit})
 
     @router.get("/api/v1/documents/{version_id}")
     async def document(version_id: str,request: Request,user=Depends(current_user)):

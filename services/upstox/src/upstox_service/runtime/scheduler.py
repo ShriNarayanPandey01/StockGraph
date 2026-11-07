@@ -11,11 +11,20 @@ from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from redis import Redis as SyncRedis
 from redis.asyncio import Redis
 
+from upstox_service.adapters.providers.news.eligibility import StockGraphEligibilityReviewer
+from upstox_service.adapters.providers.news.factory import build_news_adapters
+from upstox_service.adapters.providers.news.quota import RequestQuotaBudget
+from upstox_service.adapters.repositories.timescale.application_stores import (
+    CheckpointRepository,
+    NewsRepository,
+)
 from upstox_service.adapters.repositories.timescale.catalog import DataRepository
+from upstox_service.application.ingestion.news_eligibility import NewsEligibilityGate
 from upstox_service.application.ingestion.news_fetch import (
-    CommittedNewsFetchService,
-    RequestQuotaBudget,
-    build_news_adapters,
+    CommittedNewsPersistence,
+    NewsFetchService,
+    NewsIngestionCoordinator,
+    PendingNewsReviewService,
 )
 from upstox_service.config.settings import Settings
 from upstox_service.domain.resolver import CanonicalEntityResolver
@@ -110,11 +119,17 @@ async def _news(repo, config):
     resolver = CanonicalEntityResolver.from_catalog(await repo.list_catalog())
     quota_redis = SyncRedis.from_url(config.redis_url, decode_responses=True)
     try:
-        service = CommittedNewsFetchService(
-            build_news_adapters(resolver=resolver),
-            repo,
-            RequestQuotaBudget(quota_redis, config.news_daily_request_cap),
+        providers = build_news_adapters(resolver=resolver, config=config)
+        news_store = NewsRepository(repo)
+        reviewer = StockGraphEligibilityReviewer(config=config)
+        fetch = NewsFetchService(
+            providers, news_store, RequestQuotaBudget(quota_redis, config.news_daily_request_cap),
+            reviewer, persistence=CommittedNewsPersistence(news_store), config=config,
         )
+        reviews = PendingNewsReviewService(
+            news_store, providers, NewsEligibilityGate(reviewer), limit=config.news_max_articles_per_run,
+        )
+        service = NewsIngestionCoordinator(fetch, reviews)
         cycle = await service.fetch_cycle()
         return IngestOutcome(
             "SUCCESS" if any(r.status.value == "AVAILABLE" for r in cycle.results) else "DEGRADED",
@@ -128,21 +143,43 @@ async def hourly_news_job():
     await run_locked("hourly_news", _news)
 
 
-async def open_checkpoint_job():
-    from upstox_service.application.ingestion.checkpoints import collect_checkpoints
+async def _checkpoints(repo, config, session):
+    from upstox_service.adapters.providers.exchanges.checkpoints import NseBhavcopyAdapter
+    from upstox_service.adapters.providers.http_client import ResilientHttpClient
+    from upstox_service.adapters.providers.upstox.checkpoints import UpstoxPriceCheckpointAdapter
+    from upstox_service.adapters.providers.upstox.client import UpstoxClient
+    from upstox_service.application.ingestion.checkpoints import CheckpointCollectionService
 
-    await run_locked("daily_open", lambda repo, config: collect_checkpoints(repo, config, "OPEN"))
+    budget_redis = Redis.from_url(config.redis_url, decode_responses=True)
+    client = UpstoxClient(
+        config.upstox_analytics_token, base_url=config.upstox_api_base_url,
+        timeout=config.upstox_timeout_seconds, max_retries=config.upstox_max_retries,
+        redis_client=budget_redis, requests_per_minute=config.upstox_requests_per_minute,
+    )
+    try:
+        service = CheckpointCollectionService(
+            CheckpointRepository(repo), UpstoxPriceCheckpointAdapter(client), NseBhavcopyAdapter(ResilientHttpClient()),
+            revision_days=getattr(config, "vendor_revision_lookback_days", 10),
+            catchup_days=getattr(config, "vendor_catchup_days", 30),
+        )
+        return await service.collect(session)
+    finally:
+        await client.close()
+        await budget_redis.aclose()
+
+
+async def open_checkpoint_job():
+    await run_locked("daily_open", lambda repo, config: _checkpoints(repo, config, "OPEN"))
 
 
 async def close_checkpoint_job():
-    from upstox_service.application.ingestion.checkpoints import collect_checkpoints
-
-    await run_locked("daily_close", lambda repo, config: collect_checkpoints(repo, config, "CLOSE"))
+    await run_locked("daily_close", lambda repo, config: _checkpoints(repo, config, "CLOSE"))
 
 
 async def equity_universe_job():
     from upstox_service.adapters.providers.upstox.client import UpstoxClient
     from upstox_service.adapters.providers.upstox.stock_data import UpstoxStockDataProvider
+    from upstox_service.adapters.repositories.timescale.stock_data import StockDataRepository
     from upstox_service.application.stock_data import refresh_equity_universe
 
     async def refresh(repo, config):
@@ -160,7 +197,7 @@ async def equity_universe_job():
         )
         try:
             provider = UpstoxStockDataProvider(v2_client, v3_client)
-            await refresh_equity_universe(repo, provider)
+            await refresh_equity_universe(StockDataRepository(repo), provider)
             return "SUCCESS"
         finally:
             await v2_client.close()

@@ -248,6 +248,11 @@ class TimescaleRepository:
             self._pool = await asyncpg.create_pool(self._dsn)
         return self._pool
 
+    async def health_check(self) -> bool:
+        """Check the database without exposing the connection pool."""
+        pool = await self.connect()
+        return await pool.fetchval("SELECT 1") == 1
+
     async def close(self) -> None:
         if self._pool is not None:
             await self._pool.close()

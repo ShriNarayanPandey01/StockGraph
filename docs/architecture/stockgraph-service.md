@@ -30,6 +30,9 @@ flowchart TB
     DeveloperLinks[Developer edge routes\nlist · create · update · delete]
     PlatformConsumer[PlatformConsumer]
     EventConsumer[EventConsumer]
+    Pipeline[GraphPipeline dispatcher]
+    RegistryHandler[RegistryEventHandler]
+    NewsHandler[NewsEventHandler]
     DataClient[DataServiceClient]
     LLM[Chat / embedding providers\nwith budget and cache]
     Graph[(FalkorDB graph + vector indexes)]
@@ -43,16 +46,22 @@ flowchart TB
     Preview --> Repo
     Evidence --> Repo
     DeveloperLinks -->|writer lease| Repo
-    EventConsumer --> Resolver
-    EventConsumer --> Profile
-    EventConsumer --> Ontology
-    EventConsumer --> Extractor
-    EventConsumer --> Deduper
-    EventConsumer --> Correlator
+    EventConsumer --> Pipeline
+    Pipeline --> RegistryHandler
+    Pipeline --> NewsHandler
+    RegistryHandler --> Resolver
+    RegistryHandler --> Profile
+    RegistryHandler --> Ontology
+    NewsHandler --> Resolver
+    NewsHandler --> Profile
+    NewsHandler --> Extractor
+    NewsHandler --> Deduper
+    NewsHandler --> Correlator
     Ontology --> LLM
     Extractor --> LLM
     Correlator --> LLM
-    EventConsumer --> Repo
+    RegistryHandler --> Repo
+    NewsHandler --> Repo
     PlatformConsumer --> Repo
     Repo --> Graph
     EventConsumer <--> Redis
@@ -60,123 +69,137 @@ flowchart TB
     DataClient --> Data[Data Service internal REST]
 ```
 
-## OOP LLD class diagram
+## Application class diagram
+
+The application owns these structural protocols. The runtime constructs the
+FalkorDB and model adapters and supplies them to the application. `GraphPipeline`
+accepts injected handlers and otherwise creates its default handlers.
 
 ```mermaid
 classDiagram
-    class GraphContextService {
-      +get_context(ticker, window, pagination, evidence_scope)
-    }
-    class PublicMarketGraphService {
-      +get_preview(now_ts)
-    }
-    class EvidencePipeline {
+    class GraphPipeline {
       +process(event)
     }
-    class GraphRepository {
-      +get_entity(kind, entity_id)
-      +context_page(ticker, window, pagination)
-      +professional_page(ticker, window, pagination)
-      +public_market_graph_data(start_ts, end_ts)
-      +create_developer_edge(source, target, relation, metadata)
-      +list_developer_edges(limit, offset)
-      +update_developer_edge(edge_id, values)
-      +delete_developer_edge(edge_id)
+    class RegistryEventHandler {
+      +handle(event)
     }
-    class FalkorGraphRAGRepository {
-      +_run(cypher, params)
-      +get_temporal_subgraph(ticker, window)
-    }
-    class PlatformConsumer {
-      +run_once()
-    }
-    class EventConsumer {
-      +run_once()
-      +handle(message_id, fields)
-    }
-    class CanonicalEntityResolver {
-      +resolve_stock(raw)
-      +resolve_registry(raw)
+    class NewsEventHandler {
+      +handle(event)
+      +route(news, resolver, chat)
     }
     class StockProfileProvider {
       +build_context_card(ticker) StockContextCard
     }
-    class DynamicOntologyBuilder {
-      +infer_edges(card) OntologyEdgeBatch
+    class CanonicalEntityResolver {
+      +resolve_stock(text)
+      +resolve_registry(text)
+      +list_stocks()
+      +registry_catalog()
     }
-    class NewsGraphExtractor {
-      +extract(article, cards) NewsImpactBatch
+    class DynamicOntologyBuilder {
+      +infer_edges(card)
+      +filter_edges(ticker, edges, time)
     }
     class NewsDeduper {
-      +check_l1_seen(source_url)
-      +check_l2_text_dup(headline, ticker, now_ts)
-      +semantic_link_or_create(article, embedding)
+      +find_semantic_duplicate(embedding, ticker, time)
+    }
+    class NewsGraphExtractor {
+      +infer(news, cards)
+      +infer_market_impacts(news)
     }
     class NewsCorrelator {
-      +correlate(event, candidates) NewsCorrelationBatch
+      +correlate(repo, news)
     }
-    class GraphNewsEligibilityReviewer {
-      +review(request) NewsEligibilityVerdict
+    class GraphContextService {
+      +get_context(ticker, window, pagination)
     }
-    class DeveloperEdgeCreate {
-      <<request DTO>>
-      +source: DeveloperNodeRef
-      +target: DeveloperNodeRef
-      +relation: str
-      +rationale: str
-      +actor: str
-      +confidence: float | None
-      +metadata: dict
+    class EvidencePipeline {
+      +process(event)
     }
-    class DeveloperEdgeUpdate {
-      <<request DTO>>
-      +relation: str
-      +rationale: str
-      +actor: str
-      +confidence: float | None
-      +metadata: dict
+    class RegistryStore {
+      <<Protocol>>
+      +catalog()
+      +project_entity()
+      +rotate_dynamic_ontology_edges()
     }
-    class DeveloperEdgeAPI {
-      <<internal REST routes>>
-      +list_edges(limit, offset)
-      +create_edge(input)
-      +update_edge(edge_id, input)
-      +delete_edge(edge_id)
+    class NewsStore {
+      <<Protocol>>
+      +find_near_dup()
+      +reconcile_news_impacts()
     }
-    class ChatProvider {
-      <<abstract>>
+    class StockProfileReader {
+      <<Protocol>>
+      +get_entity(kind, id)
+      +get_active_exposures(ticker)
+    }
+    class GuidanceReader {
+      <<Protocol>>
+      +guidance_highlights(ticker)
+    }
+    class GraphContextReader {
+      <<Protocol>>
+      +context_page(ticker, start, end, offset, limit)
+    }
+    class ProfessionalEvidenceReader {
+      <<Protocol>>
+      +professional_page(ticker, start, end, offset, limit)
+    }
+    class EvidenceWriter {
+      <<Protocol>>
+      +project_professional(event, payload)
+      +project_document(event)
+    }
+    class ChatModel {
+      <<Protocol>>
       +complete_json(prompt, schema)
     }
-    class EmbeddingProvider {
-      <<abstract>>
-      +embed(texts)
+    class EmbeddingModel {
+      <<Protocol>>
+      +embed_one(text)
     }
-    class DataServiceClient {
-      +register_stock(request)
-      +financials(ticker, window)
-    }
-    GraphRepository --|> FalkorGraphRAGRepository
-    GraphContextService --> GraphRepository
-    PublicMarketGraphService --> GraphRepository
-    EvidencePipeline --> GraphRepository
-    EventConsumer --> GraphRepository
-    EventConsumer --> CanonicalEntityResolver
-    EventConsumer --> StockProfileProvider
-    EventConsumer --> DynamicOntologyBuilder
-    EventConsumer --> NewsGraphExtractor
-    EventConsumer --> NewsDeduper
-    EventConsumer --> NewsCorrelator
-    DynamicOntologyBuilder --> ChatProvider
-    NewsGraphExtractor --> ChatProvider
-    NewsCorrelator --> ChatProvider
-    EventConsumer --> EmbeddingProvider
-    PlatformConsumer --> EvidencePipeline
-    GraphNewsEligibilityReviewer --> ChatProvider
-    DeveloperEdgeAPI --> GraphRepository : graph-writer lease
-    DeveloperEdgeAPI --> DeveloperEdgeCreate
-    DeveloperEdgeAPI --> DeveloperEdgeUpdate
-    GraphContextService --> GraphRepository : reads manual links by window
+    class GraphRepository
+    class EvidenceRepository
+    class LiteLLMChatProvider
+    class LiteLLMEmbeddingProvider
+
+    GraphPipeline --> RegistryEventHandler
+    GraphPipeline --> NewsEventHandler
+    RegistryEventHandler --> RegistryStore
+    RegistryEventHandler --> NewsEventHandler : historical replay
+    RegistryEventHandler ..> StockProfileProvider
+    RegistryEventHandler ..> DynamicOntologyBuilder
+    RegistryEventHandler --> EmbeddingModel
+    NewsEventHandler --> NewsStore
+    NewsEventHandler ..> NewsDeduper
+    NewsEventHandler ..> NewsGraphExtractor
+    NewsEventHandler ..> NewsCorrelator
+    StockProfileProvider --> StockProfileReader
+    StockProfileProvider --> GuidanceReader
+    DynamicOntologyBuilder --> CanonicalEntityResolver
+    DynamicOntologyBuilder --> ChatModel
+    NewsGraphExtractor --> CanonicalEntityResolver
+    NewsGraphExtractor --> ChatModel
+    NewsCorrelator --> ChatModel
+    GraphContextService --> GraphContextReader
+    GraphContextService --> ProfessionalEvidenceReader
+    EvidencePipeline --> EvidenceWriter
+    EvidencePipeline --> EmbeddingModel
+    GraphRepository ..|> RegistryStore
+    GraphRepository ..|> NewsStore
+    GraphRepository ..|> StockProfileReader
+    GraphRepository ..|> GraphContextReader
+    EvidenceRepository ..|> GuidanceReader
+    EvidenceRepository ..|> ProfessionalEvidenceReader
+    EvidenceRepository ..|> EvidenceWriter
+    LiteLLMChatProvider ..|> ChatModel
+    LiteLLMEmbeddingProvider ..|> EmbeddingModel
 ```
+
+The protocols describe structural contracts; adapters do not need to inherit
+from them. Inference failures raise `InferenceError`, while an empty successful
+model result remains an empty list. News-impact reconciliation is required of
+the news store, so replacing a repository cannot silently switch to merge-only
+writes.
 
 ## Projection and access flow
 

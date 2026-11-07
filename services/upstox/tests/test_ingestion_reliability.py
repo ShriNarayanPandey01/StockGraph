@@ -11,11 +11,15 @@ from upstox_service.adapters.providers.news.adapters import (
     StagedNewsItem,
 )
 from upstox_service.adapters.repositories.timescale.stock_data import StockDataRepository
-from upstox_service.application.ingestion.checkpoints import collect_checkpoints, recovery_dates
+from upstox_service.application.ingestion.checkpoints import (
+    CheckpointCollectionService,
+    recovery_dates,
+)
 from upstox_service.application.ingestion.news_eligibility import NewsEligibilityGate
 from upstox_service.application.ingestion.news_fetch import (
-    CommittedNewsFetchService,
     NewsFetchService,
+    NewsIngestionCoordinator,
+    PendingNewsReviewService,
 )
 from upstox_service.domain.entities import NewsArticle
 from upstox_service.domain.enums import NewsCategory
@@ -100,11 +104,12 @@ async def test_pending_review_replays_without_a_provider_request():
         provider_id="RSS",
         priority=0,
         is_configured=False,
-        replay_item=lambda raw: raw,
-        _normalize=lambda raw: [(item, raw_item)],
+        normalize_staged=lambda payload: [(item, raw_item)],
     )
     raw_item = raw
-    await CommittedNewsFetchService([adapter], repo, eligibility_reviewer=reviewer).fetch_cycle()
+    fetch = NewsFetchService([adapter], repo, eligibility_reviewer=reviewer)
+    reviews = PendingNewsReviewService(repo, [adapter], NewsEligibilityGate(reviewer), limit=60)
+    await NewsIngestionCoordinator(fetch, reviews).fetch_cycle()
     assert repo.commit_news.await_count == 1
     committed = repo.commit_news.await_args.args[0]
     assert committed.articles[0].category is NewsCategory.TRADE
@@ -129,41 +134,26 @@ async def test_empty_vendor_response_uses_official_close(monkeypatch):
             return cls(2026, 10, 23, 14, tzinfo=UTC)
 
     monkeypatch.setattr(module, "datetime", Clock)
-    vendor = SimpleNamespace(
-        get=AsyncMock(return_value={"data": {"candles": []}}), close=AsyncMock()
-    )
-    monkeypatch.setattr(module, "UpstoxClient", lambda *args, **kwargs: vendor)
-    monkeypatch.setattr(
-        module,
-        "ResilientHttpClient",
-        lambda: SimpleNamespace(
-            fetch=lambda url: SimpleNamespace(
-                ok=True,
-                text="SYMBOL,CLOSE_PRICE,TTL_TRD_QNTY,DELIV_PER,DELIV_QTY\nABC,100,1000,60,600",
-            )
-        ),
-    )
+    from upstox_service.adapters.providers.exchanges.checkpoints import NseBhavcopyAdapter
+    from upstox_service.adapters.providers.upstox.checkpoints import UpstoxPriceCheckpointAdapter
+
+    vendor = SimpleNamespace(get=AsyncMock(return_value={"data": {"candles": []}}))
+    http = SimpleNamespace(fetch=lambda url: SimpleNamespace(
+        ok=True, text="SYMBOL,CLOSE_PRICE,TTL_TRD_QNTY,DELIV_PER,DELIV_QTY\nABC,100,1000,60,600"
+    ))
     repo = SimpleNamespace(
         list_catalog=AsyncMock(return_value=[{"payload": {"ticker": "ABC", "isin": "isin"}}]),
         get_watermark=AsyncMock(return_value=None),
-        stage_vendor_quote=AsyncMock(),
-        upsert_daily_metrics=AsyncMock(),
-        advance_watermark=AsyncMock(),
+        missing_checkpoint_dates=AsyncMock(return_value=[]),
+        stage_vendor_quote=AsyncMock(), upsert_daily_metrics=AsyncMock(), advance_watermark=AsyncMock(),
     )
-    config = SimpleNamespace(
-        upstox_analytics_token="",
-        redis_url="redis://localhost:6380/0",
-        upstox_requests_per_minute=120,
-        upstox_api_base_url="unused",
-        upstox_timeout_seconds=1,
-        upstox_max_retries=0,
-        vendor_revision_lookback_days=0,
+    service = CheckpointCollectionService(
+        repo, UpstoxPriceCheckpointAdapter(vendor), NseBhavcopyAdapter(http), revision_days=0
     )
-    assert await collect_checkpoints(repo, config, "CLOSE") == "DEGRADED"
+    assert await service.collect("CLOSE") == "DEGRADED"
     metric = repo.upsert_daily_metrics.await_args.args[0][0]
     assert metric["close_price"] == 100 and metric["delivery_pct"] == 60
     assert metric["vendor_id"] == "NSE_BHAVCOPY"
-    vendor.close.assert_awaited_once()
 
 
 async def test_scheduler_keeps_persisted_due_time_on_definition_refresh():

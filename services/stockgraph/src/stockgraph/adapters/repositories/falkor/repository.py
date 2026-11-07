@@ -11,6 +11,7 @@ from uuid import uuid4
 
 from stockgraph.adapters.repositories.falkor.legacy_repository import FalkorGraphRAGRepository
 from stockgraph.adapters.repositories.falkor.news_reconciliation import NewsReconciliation
+from stockgraph.application.graph_queries.presentation import public_props
 from stockgraph.runtime.settings import settings
 
 KINDS = {"Stock": "ticker", "Commodity": "id", "MacroFactor": "id", "Sector": "id"}
@@ -49,14 +50,6 @@ ENTITY_FIELDS = {
 
 def first(row: Any) -> Any:
     return next(iter(row.values())) if isinstance(row, dict) else row[0]
-
-
-def public_props(props: dict) -> dict:
-    return {
-        k: v
-        for k, v in props.items()
-        if k not in {"embedding", "profile_embedding", "profile_json"}
-    }
 
 
 class GraphRepository(NewsReconciliation, FalkorGraphRAGRepository):

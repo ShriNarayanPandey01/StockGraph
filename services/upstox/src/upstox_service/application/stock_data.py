@@ -7,8 +7,8 @@ import json
 from datetime import UTC, date, datetime, timedelta
 from zoneinfo import ZoneInfo
 
-from upstox_service.adapters.providers.upstox.client import ProviderError
-from upstox_service.adapters.repositories.timescale.stock_data import StockDataRepository
+from upstox_service.application.errors import InstrumentNotFound
+from upstox_service.application.ports import StockDataProviderPort, StockDataRepositoryPort
 
 
 class StockNotFound(LookupError):
@@ -39,15 +39,15 @@ def _decode_cursor(cursor: str, query: str, exchange: str | None) -> tuple[str, 
         raise InvalidCursor("Cursor does not match the stock query") from exc
 
 
-async def refresh_equity_universe(repository, provider) -> dict[str, int]:
+async def refresh_equity_universe(repository: StockDataRepositoryPort, provider: StockDataProviderPort) -> dict[str, int]:
     """Scheduler hook: fetch both BOD files before atomically replacing active rows."""
     rows = await provider.fetch_equity_universe()
-    return await StockDataRepository(repository).refresh_universe(rows)
+    return await repository.refresh_universe(rows)
 
 
 class StockDataService:
-    def __init__(self, repository, provider, *, persist_provider_results: bool = True):
-        self._repo = StockDataRepository(repository)
+    def __init__(self, repository: StockDataRepositoryPort, provider: StockDataProviderPort, *, persist_provider_results: bool = True):
+        self._repo = repository
         self._provider = provider
         self._persist_provider_results = persist_provider_results
 
@@ -71,10 +71,8 @@ class StockDataService:
             return instrument
         try:
             resolved = await self._provider.resolve(ticker, exchange)
-        except ProviderError as exc:
-            if "No official equity" in str(exc):
-                raise StockNotFound("No equity matched this symbol and exchange") from exc
-            raise
+        except InstrumentNotFound as exc:
+            raise StockNotFound("No equity matched this symbol and exchange") from exc
         if resolved["trading_symbol"].upper() != ticker.upper():
             raise StockNotFound("No equity matched this symbol and exchange")
         if not self._persist_provider_results:

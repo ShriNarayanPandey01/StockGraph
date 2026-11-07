@@ -5,7 +5,7 @@ import json
 from datetime import UTC, datetime, timedelta
 from uuid import UUID, uuid4
 
-from marketgraph_platform.repository import PlatformError
+from marketgraph_platform.errors import PlatformError
 
 
 async def job_access(conn, job):

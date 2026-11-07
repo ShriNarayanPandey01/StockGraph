@@ -5,6 +5,7 @@ from urllib.parse import quote, urlparse
 from zoneinfo import ZoneInfo
 
 from upstox_service.adapters.providers.upstox.client import ProviderError, UpstoxClient
+from upstox_service.application.errors import InstrumentNotFound
 from upstox_service.application.financial_context import (
     narrative_quarter_context,
     normalize_statements,
@@ -42,7 +43,7 @@ class UpstoxCompanyProvider:
         if len(rows) == 1 and pages == 1:
             return rows[0]
         if not rows:
-            raise ProviderError("No official equity instrument matched the requested stock")
+            raise InstrumentNotFound("No official equity instrument matched the requested stock")
         raise ProviderError("Ambiguous stock name; submit an exact symbol or ISIN")
 
     async def fetch_prospectus_links(self, isin: str) -> list[dict[str, str]]:

@@ -6,7 +6,7 @@ import hashlib
 from datetime import UTC, datetime
 from typing import Any
 
-from stockgraph.adapters.repositories.falkor.repository import public_props
+from stockgraph.application.graph_queries.presentation import public_props
 from stockgraph.domain.context import (
     GraphEdge,
     GraphNode,

@@ -28,13 +28,15 @@ def main() -> None:
                 repo.reconcile_curated_links()
             finally:
                 repo.set_write_guard(None)
+    evidence = EvidenceRepository(repo)
     pipeline = GraphPipeline(
-        repo, broker, LiteLLMChatProvider(broker), LiteLLMEmbeddingProvider(broker)
+        repo, broker, LiteLLMChatProvider(broker), LiteLLMEmbeddingProvider(broker),
+        guidance=evidence,
     )
-    consumer = EventConsumer(broker, pipeline)
+    consumer = EventConsumer(broker, pipeline, repo=repo)
     consumer.ensure_group()
     platform_consumer = PlatformConsumer(broker, EvidencePipeline(
-        repo, LiteLLMEmbeddingProvider(broker) if settings.llm_enabled else None
+        evidence, LiteLLMEmbeddingProvider(broker) if settings.llm_enabled else None
     ))
     platform_consumer.ensure_group()
     try:

@@ -10,6 +10,7 @@ import httpx
 import pytest
 from marketgraph_platform.api import CanonicalClient, create_app
 from marketgraph_platform.auth import issue_token, token_digest
+from marketgraph_platform.entitlements import load_access
 from marketgraph_platform.models import ContributionInput, Principal
 from marketgraph_platform.policy import access_policy
 from marketgraph_platform.repository import PlatformError, Repository
@@ -94,6 +95,7 @@ async def test_api_authentication_operational_budget_and_free_access():
     repository.authenticate.return_value = principal.model_dump()
     repository.allow_request.return_value = True
     repository.pool = EntitlementPool(principal)
+    repository.load_access_snapshot = lambda user_id: load_access(repository.pool, user_id)
     canonical = AsyncMock()
     canonical.validate_ticker.return_value = None
     app = create_app(Settings(), repository, canonical)
@@ -115,6 +117,7 @@ async def test_api_published_evidence_preserves_opposing_items_and_counts_reads(
     repository.authenticate.return_value = principal.model_dump()
     repository.allow_request.return_value = True
     repository.pool = EntitlementPool(principal)
+    repository.load_access_snapshot = lambda user_id: load_access(repository.pool, user_id)
     repository.published.return_value = [{"direction": "BULLISH"}, {"direction": "BEARISH"}]
     canonical = AsyncMock()
     canonical.validate_ticker.return_value = None
@@ -132,9 +135,12 @@ async def test_unknown_entity_is_rejected_before_creating_draft():
     repository = AsyncMock()
     repository.authenticate.return_value = principal.model_dump()
     repository.allow_request.return_value = True
-    canonical = CanonicalClient(Settings())
-    await canonical.client.aclose()
-    canonical.client = httpx.AsyncClient(transport=httpx.MockTransport(lambda request: httpx.Response(200, json={"entities": []})), base_url="http://data")
+    canonical = CanonicalClient(
+        Settings(),
+        transport=httpx.MockTransport(
+            lambda request: httpx.Response(200, json={"entities": []})
+        ),
+    )
     app = create_app(Settings(), repository, canonical)
     try:
         async with httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url="http://test") as client:

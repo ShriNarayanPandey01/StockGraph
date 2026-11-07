@@ -5,7 +5,12 @@ from cryptography.fernet import Fernet, InvalidToken
 from fastapi import APIRouter, Depends, Request
 from pydantic import BaseModel, ConfigDict, Field, SecretStr
 
-from marketgraph_platform.repository import PlatformError
+from marketgraph_platform.application.ports import (
+    BrokerRepositoryPort,
+    CredentialVaultPort,
+    DataClientPort,
+)
+from marketgraph_platform.errors import PlatformError
 
 
 class TokenInput(BaseModel):
@@ -39,61 +44,48 @@ class BrokerVault:
             raise PlatformError(503, "Broker credential is unavailable; reconnect or check encryption configuration") from None
 
 
-class BrokerConnections:
-    def __init__(self, repository, settings, canonical_client):
-        self.repository = repository
-        self.client = canonical_client
-        self.__vault = BrokerVault(settings.broker_encryption_key)
+class BrokerConnectionService:
+    def __init__(self, repository: BrokerRepositoryPort, settings,
+                 data_client: DataClientPort, vault: CredentialVaultPort | None = None):
+        self._repository = repository
+        self._client = data_client
+        self._vault = vault or BrokerVault(settings.broker_encryption_key)
 
     async def status(self, user_id):
-        row = await self.repository.pool.fetchrow(
-            "SELECT status,revision,validated_at FROM platform_broker_connections WHERE user_id=$1", user_id)
-        return dict(row) if row else {"status": "disconnected", "revision": 0, "validated_at": None}
+        return await self._repository.broker_status(user_id)
 
     async def connect(self, user, token):
-        encrypted = self.__vault.encrypt(user.id, token)
-        await self.client.post_internal("/internal/v1/upstox/validate-credential",
+        encrypted = self._vault.encrypt(user.id, token)
+        await self._client.post_internal("/internal/v1/upstox/validate-credential",
                                         {"access_token": token.get_secret_value()})
-        async with self.repository.pool.acquire() as conn, conn.transaction():
-            owner = await conn.fetchrow("SELECT disabled FROM platform_users WHERE id=$1 FOR UPDATE", user.id)
-            if owner is None or owner["disabled"]:
-                raise PlatformError(403, "Account is unavailable")
-            await conn.execute(
-                "INSERT INTO platform_broker_connections(user_id,encrypted_token,status,validated_at) "
-                "VALUES($1,$2,'connected',now()) ON CONFLICT(user_id) DO UPDATE SET "
-                "encrypted_token=EXCLUDED.encrypted_token,revision=platform_broker_connections.revision+1,"
-                "status='connected',validated_at=now(),updated_at=now()", user.id, encrypted)
-        return await self.status(user.id)
+        return await self._repository.save_broker_credential(user.id, encrypted)
 
     async def disconnect(self, user_id):
-        await self.repository.pool.execute(
-            "UPDATE platform_broker_connections SET encrypted_token=NULL,revision=revision+1,"
-            "status='disconnected',validated_at=NULL,updated_at=now() WHERE user_id=$1", user_id)
-        return await self.status(user_id)
+        return await self._repository.disconnect_broker(user_id)
 
     async def headers_for(self, user_id):
-        row = await self.repository.pool.fetchrow(
-            "SELECT status,revision,encrypted_token FROM platform_broker_connections WHERE user_id=$1", user_id)
+        row = await self._repository.read_broker_credential(user_id)
         if row is None or row["status"] == "disconnected":
             return {}
         if row["status"] != "connected":
             raise PlatformError(409, "broker_reconnect_required")
-        token = self.__vault.decrypt(user_id, row["encrypted_token"])
+        token = self._vault.decrypt(user_id, row["encrypted_token"])
         return {"X-Upstox-Access-Token": token.get_secret_value(),
                 "X-MarketGraph-Credential-Scope": f"{user_id}:{row['revision']}"}
 
     async def read(self, user_id, path, params=None):
         headers = await self.headers_for(user_id)
         try:
-            return await self.client.get(path, params, headers=headers)
+            return await self._client.get(path, params, headers=headers)
         except PlatformError as exc:
             if exc.status == 401 and headers and exc.detail == "broker_reconnect_required":
                 revision = int(headers["X-MarketGraph-Credential-Scope"].rsplit(":", 1)[1])
-                await self.repository.pool.execute(
-                    "UPDATE platform_broker_connections SET status='reconnect_required',updated_at=now() "
-                    "WHERE user_id=$1 AND revision=$2", user_id, revision)
+                await self._repository.require_broker_reconnect(user_id, revision)
                 raise PlatformError(409, "broker_reconnect_required") from None
             raise
+
+
+BrokerConnections = BrokerConnectionService
 
 
 def build_broker_router(current_user):

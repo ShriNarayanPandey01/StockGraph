@@ -34,13 +34,14 @@ from collections.abc import Mapping
 from typing import Any
 
 from pydantic import BaseModel, Field
-from stockgraph.adapters.llm.tokens import truncate_to_tokens
+from stockgraph.application.errors import InferenceError
 from stockgraph.domain.schemas import (
     InferredNewsMarketImpact,
     InferredNewsStockImpact,
     StockContextCard,
 )
 from stockgraph.runtime.settings import settings
+from stockgraph.shared.tokens import truncate_to_tokens
 
 logger = logging.getLogger(__name__)
 
@@ -188,17 +189,14 @@ class NewsGraphExtractor:
         try:
             batch = self._chat.complete_json(prompt, NewsImpactBatch)
         except Exception as exc:
-            logger.warning("Extractor LLM call failed for %s: %s", news_id, exc)
-            return []
+            raise InferenceError("LLM inference failed; event remains retryable") from exc
         if isinstance(batch, dict):
             try:
                 batch = NewsImpactBatch.model_validate(batch)
             except Exception as exc:
-                logger.warning("Extractor output invalid for %s: %s", news_id, exc)
-                return []
+                raise InferenceError("LLM inference failed; event remains retryable") from exc
         if not isinstance(batch, NewsImpactBatch):
-            logger.warning("Extractor rejected non-structured output for %s", news_id)
-            return []
+            raise InferenceError("LLM inference failed; event remains retryable")
         return self.filter_impacts(news_id, batch.impacts)
 
     def infer_market_impacts(
@@ -215,17 +213,14 @@ class NewsGraphExtractor:
         try:
             batch = self._chat.complete_json(prompt, NewsMarketImpactBatch)
         except Exception as exc:
-            logger.warning("Market router LLM call failed for %s: %s", news_id, exc)
-            return []
+            raise InferenceError("LLM inference failed; event remains retryable") from exc
         if isinstance(batch, dict):
             try:
                 batch = NewsMarketImpactBatch.model_validate(batch)
             except Exception as exc:
-                logger.warning("Market router output invalid for %s: %s", news_id, exc)
-                return []
+                raise InferenceError("LLM inference failed; event remains retryable") from exc
         if not isinstance(batch, NewsMarketImpactBatch):
-            logger.warning("Market router rejected non-structured output for %s", news_id)
-            return []
+            raise InferenceError("LLM inference failed; event remains retryable")
         return self.filter_market_impacts(news_id, batch.impacts)
 
     def filter_impacts(
@@ -349,7 +344,7 @@ class NewsGraphExtractor:
             )
             count += 1
             if imp.shocked_entity_id:
-                kind = self._shock_kind(imp.shocked_entity_id)
+                kind = self.shock_kind(imp.shocked_entity_id)
                 if kind is not None:
                     repo.merge_news_shock(
                         imp.news_id,
@@ -371,7 +366,7 @@ class NewsGraphExtractor:
         """Write market-level edges (SHOCKS / ALTERS_MACRO / IMPACTS_SECTOR)."""
         count = 0
         for imp in impacts:
-            kind = self._shock_kind(imp.entity_id)
+            kind = self.shock_kind(imp.entity_id)
             if kind is None:
                 continue
             repo.merge_news_shock(
@@ -385,6 +380,6 @@ class NewsGraphExtractor:
             count += 1
         return count
 
-    def _shock_kind(self, shocked_id: str) -> str | None:
+    def shock_kind(self, shocked_id: str) -> str | None:
         hit = self._resolver.resolve_registry(shocked_id)
         return hit.kind if hit is not None else None

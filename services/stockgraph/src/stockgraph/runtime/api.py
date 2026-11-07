@@ -14,6 +14,7 @@ from stockgraph.adapters.api.evidence_routes import build_evidence_router
 from stockgraph.adapters.api.internal_auth import install_internal_boundary
 from stockgraph.adapters.llm.providers import LiteLLMChatProvider
 from stockgraph.adapters.messaging.consumer import renewable_lock
+from stockgraph.adapters.repositories.falkor.professional import EvidenceRepository
 from stockgraph.adapters.repositories.falkor.repository import GraphRepository
 from stockgraph.application.graph_queries.context import GraphContextService
 from stockgraph.application.graph_queries.public_preview import PublicMarketGraphService
@@ -67,7 +68,9 @@ def create_app(
     app.state.data = (
         data_client if data_client is not None else DataServiceClient(settings.data_service_url)
     )
-    app.state.context = GraphContextService(app.state.repo)
+    app.state.context = GraphContextService(
+        app.state.repo, EvidenceRepository(app.state.repo), settings.professional_evidence_weight
+    )
     app.include_router(build_evidence_router(app.state.repo))
     app.state.public_market_graph = PublicMarketGraphService(app.state.repo)
     app.state.eligibility_reviewer = eligibility_reviewer or GraphNewsEligibilityReviewer(

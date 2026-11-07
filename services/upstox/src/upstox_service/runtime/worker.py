@@ -8,6 +8,7 @@ from redis.asyncio import Redis
 from upstox_service.adapters.messaging import RedisPublisher
 from upstox_service.adapters.providers.upstox.client import UpstoxClient
 from upstox_service.adapters.providers.upstox.company import UpstoxCompanyProvider
+from upstox_service.adapters.repositories.timescale.application_stores import RegistrationRepository
 from upstox_service.adapters.repositories.timescale.catalog import DataRepository
 from upstox_service.adapters.repositories.timescale.documents import DocumentRepository
 from upstox_service.application.stock_registration import RegistrationWorker
@@ -27,7 +28,7 @@ async def run():
     )
     publisher = RedisPublisher(redis, config.event_stream)
     worker = RegistrationWorker(
-        repository,
+        RegistrationRepository(repository),
         UpstoxCompanyProvider(client),
         max_attempts=config.job_max_attempts,
         lease_seconds=config.job_lease_seconds,

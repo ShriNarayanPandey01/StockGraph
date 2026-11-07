@@ -46,119 +46,130 @@ The scheduled worker and API are separate processes. The scheduler owns durable
 cadence and single-flight dispatch; the worker performs registration and ingestion.
 Provider HTTP credentials and retry/timeout behavior stay inside provider adapters.
 
-## OOP LLD class diagram
+## Application class diagram
+
+Application services receive structural protocols from `application/ports.py`.
+The API, worker and scheduler assemble concrete adapters. The existing SQL
+repository owns transactions; narrow repository adapters expose each workflow's
+operations while retaining atomic source/outbox commits.
 
 ```mermaid
 classDiagram
-    class Settings
     class DataApiRoutes {
-      <<FastAPI route handlers>>
-      +update_catalog_entity(kind, entity_id, request)
+      <<FastAPI routes>>
     }
-    class AdminCatalogUpdate {
-      <<request DTO>>
-      +changes: dict
-      +reason: str
-    }
-    class StockDataService {
-      +list_stocks(query, cursor, limit)
-      +stock(ticker, exchange)
-      +shareholding(ticker, exchange)
-      +get_candles(ticker, start, end)
+    class StockRegistrationSubmissionService {
+      +submit(request)
     }
     class RegistrationWorker {
       +run_once()
     }
-    class CompanyProvider {
+    class RegistrationJobPort {
       <<Protocol>>
-      +resolve(query, exchange)
-      +fetch_company(request) CompanyBundle
-    }
-    class UpstoxCompanyProvider {
-      +resolve(query, exchange)
-      +fetch_company(request) CompanyBundle
-    }
-    class UpstoxClient {
-      -token: SecretStr
-      +get(path, params)
-      +close()
-    }
-    class UpstoxMarketProvider {
-      +resolve_underlying(query, exchange)
-      +option_chain(underlying, expiry)
-      +smartlist(kind, exchange)
-      +derivatives_analytics(kind, query)
-    }
-    class UpstoxStockDataProvider {
-      +resolve(ticker, exchange)
-      +fetch_profile(isin)
-      +fetch_shareholding(isin)
-      +fetch_daily_candles(instrument, range)
-    }
-    class ScopedMarketProvider {
-      +__getattr__(name)
-    }
-    class CredentialContext {
-      +scope: str
-      +stock_provider: UpstoxStockDataProvider
-      +market_provider: UpstoxMarketProvider
-    }
-    class CanonicalEntityResolver {
-      +resolve_stock(raw, exchange)
-      +resolve_registry(raw)
-    }
-    class DataRepository {
       +create_job(request)
-      +commit_company(job, bundle)
-      +update_catalog_entity(kind, entity_id, changes)
-      +claim_outbox()
-      +publish_outbox(publisher)
+      +claim_job()
+      +commit_company()
+      +fail_job()
     }
-    class EntityCatalogVersion {
-      <<append-only SQL row>>
-      +kind
-      +entity_id
-      +revision
-      +payload
-      +valid_from
+    class CompanyProviderPort {
+      <<Protocol>>
+      +fetch_company(request)
     }
-    class StockDataRepository {
-      +search_instruments(query, cursor, limit)
-      +get_profile(isin)
-      +get_shareholding(isin)
-      +get_candles(ticker, start, end)
+    class StockDataService {
+      +list_stocks()
+      +stock()
+      +shareholding()
+      +candles()
     }
-    class RedisPublisher {
-      +publish(event)
+    class StockDataRepositoryPort {
+      <<Protocol>>
+    }
+    class StockDataProviderPort {
+      <<Protocol>>
+    }
+    class ManualNewsSubmissionService {
+      +submit(request)
+    }
+    class NewsIngestionCoordinator {
+      +fetch_cycle()
     }
     class NewsFetchService {
       +fetch_cycle()
+      +replay_staged()
     }
-    class NewsProviderAdapter {
-      <<abstract>>
-      +fetch(query) ProviderFetchResult
+    class PendingNewsReviewService {
+      +replay_pending()
     }
-    class PersistentSchedule {
-      <<AsyncIOScheduler subclass>>
-      +start()
-      +shutdown()
+    class NewsEligibilityGate {
+      +decide(article)
     }
-    RegistrationWorker --> CompanyProvider : injected port
-    UpstoxCompanyProvider ..|> CompanyProvider
-    UpstoxCompanyProvider --> UpstoxClient
-    UpstoxMarketProvider --> UpstoxClient
-    UpstoxStockDataProvider --> UpstoxClient
-    ScopedMarketProvider --> CredentialContext
-    ScopedMarketProvider --> UpstoxMarketProvider : delegates selected context
-    RegistrationWorker --> DataRepository
-    RegistrationWorker --> CanonicalEntityResolver
-    StockDataService --> StockDataRepository
-    DataRepository --> RedisPublisher : transactional outbox relay
-    NewsFetchService --> NewsProviderAdapter
-    PersistentSchedule --> NewsFetchService
-    DataApiRoutes --> AdminCatalogUpdate
-    DataApiRoutes --> DataRepository
-    DataRepository --> EntityCatalogVersion : appends
+    class NewsProviderPort {
+      <<Protocol>>
+      +fetch()
+      +normalize_staged()
+    }
+    class NewsCommitPort {
+      <<Protocol>>
+      +commit_news(result)
+    }
+    class RequestQuotaPort {
+      <<Protocol>>
+      +try_consume(provider, cap)
+    }
+    class CheckpointCollectionService {
+      +collect(session)
+    }
+    class PriceCheckpointProviderPort {
+      <<Protocol>>
+    }
+    class BhavcopyProviderPort {
+      <<Protocol>>
+    }
+    class CheckpointRepositoryPort {
+      <<Protocol>>
+    }
+    class RegistrationRepository
+    class StockDataRepository
+    class NewsRepository
+    class CheckpointRepository
+    class UpstoxCompanyProvider
+    class UpstoxStockDataProvider
+    class UpstoxPriceCheckpointAdapter
+    class NseBhavcopyAdapter
+    class NewsProviderAdapter
+    class RequestQuotaBudget
+
+    DataApiRoutes --> StockRegistrationSubmissionService
+    DataApiRoutes --> StockDataService
+    DataApiRoutes --> ManualNewsSubmissionService
+    StockRegistrationSubmissionService --> RegistrationJobPort
+    RegistrationWorker --> RegistrationJobPort
+    RegistrationWorker --> CompanyProviderPort
+    StockDataService --> StockDataRepositoryPort
+    StockDataService --> StockDataProviderPort
+    ManualNewsSubmissionService --> NewsCommitPort
+    ManualNewsSubmissionService --> NewsEligibilityGate
+    NewsIngestionCoordinator *-- NewsFetchService
+    NewsIngestionCoordinator *-- PendingNewsReviewService
+    NewsFetchService --> NewsProviderPort
+    NewsFetchService --> RequestQuotaPort
+    NewsFetchService --> NewsEligibilityGate
+    PendingNewsReviewService --> NewsProviderPort
+    PendingNewsReviewService --> NewsCommitPort
+    PendingNewsReviewService --> NewsEligibilityGate
+    CheckpointCollectionService --> PriceCheckpointProviderPort
+    CheckpointCollectionService --> BhavcopyProviderPort
+    CheckpointCollectionService --> CheckpointRepositoryPort
+    RegistrationRepository ..|> RegistrationJobPort
+    StockDataRepository ..|> StockDataRepositoryPort
+    NewsRepository ..|> NewsCommitPort
+    CheckpointRepository ..|> CheckpointRepositoryPort
+    UpstoxCompanyProvider ..|> CompanyProviderPort
+    UpstoxStockDataProvider ..|> StockDataProviderPort
+    UpstoxPriceCheckpointAdapter ..|> PriceCheckpointProviderPort
+    NseBhavcopyAdapter ..|> BhavcopyProviderPort
+    NewsProviderAdapter ..|> NewsProviderPort
+    RequestQuotaBudget ..|> RequestQuotaPort
 ```
 
 ## Storage and flow

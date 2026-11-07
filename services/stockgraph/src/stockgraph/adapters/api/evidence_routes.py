@@ -29,7 +29,7 @@ def build_evidence_router(repo):
         if as_of_ts is not None and not now - settings.pagination_snapshot_max_age_seconds <= as_of_ts <= now:
             raise HTTPException(422, "Pagination snapshot expired or is in the future")
         start, end = resolve_window(window, datetime.fromtimestamp(as_of_ts, UTC) if as_of_ts else None)
-        return professional_context(repo, ticker.upper(), start, end, offset, limit,
+        return professional_context(EvidenceRepository(repo), ticker.upper(), start, end, offset, limit,
                                     getattr(settings, "professional_evidence_weight", 1.5))
 
     @router.get("/documents/search")

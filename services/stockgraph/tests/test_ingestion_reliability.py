@@ -195,7 +195,7 @@ def no_lease(monkeypatch):
 
 def test_malformed_events_are_replayable_quarantined_and_acknowledged(caplog):
     broker = StreamBroker()
-    consumer = EventConsumer(broker, SimpleNamespace())
+    consumer = EventConsumer(broker, SimpleNamespace(), repo=Repo())
     wire = '{"bad":"secret-provider-token"}'
     assert consumer.handle("1-0", {"event": wire})
     assert broker.acks == ["1-0"]
@@ -212,7 +212,7 @@ def test_permanent_failures_have_bounded_attempts(no_lease):
         def process(self, event):
             raise ValueError("Permanent invalid canonical identity")
 
-    consumer, event = EventConsumer(broker, Pipeline()), make_event()
+    consumer, event = EventConsumer(broker, Pipeline(), repo=Repo()), make_event()
     for index in range(3):
         assert consumer.handle("1-0", {"event": event.model_dump_json()}) is (index == 2)
     assert broker.acks == ["1-0"] and len(broker.quarantine) == 1
@@ -228,7 +228,7 @@ def test_dependency_outages_stay_retryable_beyond_permanent_attempt_limit(no_lea
         def process(self, event):
             raise ConnectionError("recoverable outage")
 
-    consumer, event = EventConsumer(broker, Pipeline()), make_event()
+    consumer, event = EventConsumer(broker, Pipeline(), repo=Repo()), make_event()
     for _ in range(5):
         assert not consumer.handle("1-0", {"event": event.model_dump_json()})
     assert not broker.acks and not broker.quarantine
@@ -238,7 +238,7 @@ def test_pending_retries_and_new_entries_receive_fair_intake():
     broker = StreamBroker()
     broker.xautoclaim = lambda *args, **kwargs: ["0-0", [("1-0", {})], []]
     broker.xreadgroup = lambda *args, **kwargs: [("stream", [("2-0", {})])]
-    consumer = EventConsumer(broker, SimpleNamespace())
+    consumer = EventConsumer(broker, SimpleNamespace(), repo=Repo())
     seen = []
     consumer.handle = lambda message_id, fields: seen.append(message_id) or True
     assert consumer.run_once() == 2

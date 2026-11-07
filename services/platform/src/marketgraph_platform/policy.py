@@ -2,7 +2,7 @@
 import json
 from datetime import UTC, datetime
 
-from marketgraph_platform.repository import PlatformError
+from marketgraph_platform.errors import PlatformError
 
 FEATURES = {
     "professional_evidence": "PRO", "research_chat": "FREE", "discovery": "PRO",

@@ -4,10 +4,10 @@ from __future__ import annotations
 
 import asyncio
 import logging
-import math
 import time
 
 from falkordb import FalkorDB
+from stockgraph.application.processors.similarity import cosine_similarity
 from stockgraph.runtime.settings import settings
 
 logger = logging.getLogger(__name__)
@@ -70,23 +70,6 @@ def _render_vector_k(query: str, k: int) -> str:
         raise TypeError(f"vector k must be an int, got {type(k).__name__}")
     bounded = max(MIN_VECTOR_K, min(k, MAX_VECTOR_K))
     return query.replace("{k}", str(bounded))
-
-
-def cosine_similarity(a: list[float], b: list[float]) -> float:
-    """Deterministic Python cosine similarity in [-1, 1] (0.0 on empty input).
-
-    Authoritative L3 gate: FalkorDB's `score` orientation is version-sensitive,
-    so every dedup decision re-scores locally and compares against
-    `settings.dedup_cosine_threshold`. Pure stdlib (no numpy dependency).
-    """
-    if not a or not b or len(a) != len(b):
-        return 0.0
-    dot = sum(x * y for x, y in zip(a, b))
-    norm_a = math.sqrt(sum(x * x for x in a))
-    norm_b = math.sqrt(sum(y * y for y in b))
-    if norm_a == 0.0 or norm_b == 0.0:
-        return 0.0
-    return dot / (norm_a * norm_b)
 
 
 # Master dossier retrieval (Rule 3: window=LAST_6M|LAST_1Y only, always bounded).

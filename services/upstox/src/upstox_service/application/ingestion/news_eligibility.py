@@ -9,18 +9,12 @@ articles never reach a repository method or the event outbox.
 
 from __future__ import annotations
 
-import logging
 import re
 from dataclasses import dataclass
 from typing import Protocol
 
-import httpx
-
-from upstox_service.config.settings import settings
 from upstox_service.domain.entities import NewsArticle
 from upstox_service.domain.enums import NewsCategory
-
-logger = logging.getLogger(__name__)
 
 APPROVED_CATEGORIES = frozenset(
     {
@@ -118,60 +112,11 @@ class EligibilityReviewer(Protocol):
     async def review(self, article: NewsArticle) -> EligibilityDecision | None: ...
 
 
-class StockGraphEligibilityReviewer:
-    """Thin HTTP client; LLM credentials never enter the data service."""
-
-    def __init__(self, url: str | None = None, timeout_seconds: float | None = None) -> None:
-        self._internal_key = settings.internal_service_key.get_secret_value()
-        self._url = (url if url is not None else settings.news_eligibility_url).strip()
-        self._timeout = (
-            timeout_seconds
-            if timeout_seconds is not None
-            else settings.news_eligibility_timeout_seconds
-        )
-
-    async def review(self, article: NewsArticle) -> EligibilityDecision | None:
-        if not self._url:
-            return None
-        payload = {
-            "headline": article.headline,
-            "summary": article.summary,
-            "candidate_tickers": list(article.tickers),
-            "preliminary_category": article.category.value,
-        }
-        try:
-            async with httpx.AsyncClient(timeout=self._timeout) as client:
-                response = await client.post(self._url, json=payload, headers={
-                    "X-Internal-Service-Key": self._internal_key})
-                response.raise_for_status()
-                body = response.json()
-            if not isinstance(body, dict):
-                return None
-            if body.get("reason") == "REVIEW_UNAVAILABLE":
-                return None
-            if not bool(body.get("eligible")):
-                return EligibilityDecision(
-                    False, None, "LLM", str(body.get("reason") or "LLM_REJECTED")
-                )
-            category = NewsCategory(str(body.get("category") or ""))
-            if category not in APPROVED_CATEGORIES:
-                return None
-            return EligibilityDecision(
-                True, category, "LLM", str(body.get("reason") or "LLM_APPROVED")
-            )
-        except (httpx.HTTPError, ValueError, TypeError) as exc:
-            logger.warning(
-                "News eligibility review unavailable; article review remains pending (%s)",
-                type(exc).__name__,
-            )
-            return None
-
-
 class NewsEligibilityGate:
     """Deterministic allow/deny policy with an injected ambiguity reviewer."""
 
     def __init__(self, reviewer: EligibilityReviewer | None = None) -> None:
-        self._reviewer = reviewer or StockGraphEligibilityReviewer()
+        self._reviewer = reviewer
 
     async def decide(self, article: NewsArticle) -> EligibilityDecision:
         text = f"{article.headline}\n{article.summary}".lower()
@@ -198,7 +143,7 @@ class NewsEligibilityGate:
         return await self._review_or_reject(article)
 
     async def _review_or_reject(self, article: NewsArticle) -> EligibilityDecision:
-        verdict = await self._reviewer.review(article)
+        verdict = await self._reviewer.review(article) if self._reviewer is not None else None
         if verdict is None:
             return EligibilityDecision(False, None, "LLM", "REVIEW_UNAVAILABLE")
         if not verdict.approved or verdict.category not in APPROVED_CATEGORIES:

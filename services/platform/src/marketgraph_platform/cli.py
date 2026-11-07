@@ -5,7 +5,8 @@ import asyncio
 from uuid import UUID
 
 from marketgraph_platform.auth import issue_token
-from marketgraph_platform.repository import PlatformError, Repository
+from marketgraph_platform.errors import PlatformError
+from marketgraph_platform.repository import Repository
 from marketgraph_platform.settings import Settings
 
 

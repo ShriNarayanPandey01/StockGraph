@@ -40,8 +40,7 @@ async def run():
             try:
                 await relay_once(repository, redis, settings)
                 if find_spec("marketgraph_platform.agent_repository"):
-                    from marketgraph_platform.agent_repository import schedule_due_monitors
-                    await schedule_due_monitors(repository.pool, settings)
+                    await repository.schedule_due_monitors(settings)
                 await repository.housekeeping()
             except Exception:
                 logger.warning("Platform worker iteration deferred")

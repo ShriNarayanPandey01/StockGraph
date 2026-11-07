@@ -87,27 +87,25 @@ def build_account_router(current_user):
 
     @router.get("/api/v1/admin/users")
     async def users(request: Request, user: Principal = Depends(developer), limit: int = Query(50, ge=1, le=200), offset: int = Query(0, ge=0)):
-        async with request.app.state.repository.pool.acquire() as conn:
-            await request.app.state.accounts.audit(conn, user.id, "users.listed")
+        await request.app.state.accounts.audit_action(user.id, "users.listed")
         return await request.app.state.accounts.list_users(limit, offset)
 
     @router.get("/api/v1/admin/users/{user_id}")
     async def user_detail(user_id: UUID, request: Request, user: Principal = Depends(developer)):
         result = await request.app.state.accounts.user_detail(user_id)
-        async with request.app.state.repository.pool.acquire() as conn:
-            await request.app.state.accounts.audit(conn, user.id, "user.read", user_id)
+        await request.app.state.accounts.audit_action(user.id, "user.read", user_id)
         return result
 
     @router.patch("/api/v1/admin/users/{user_id}")
     async def update_user(user_id: UUID, body: AdminUserInput, request: Request, user: Principal = Depends(developer)):
         changes = body.model_dump(exclude_unset=True)
         if any(value is None and key != "plan_expires_at" for key, value in changes.items()):
-            from marketgraph_platform.repository import PlatformError
+            from marketgraph_platform.errors import PlatformError
             raise PlatformError(422, "Account fields cannot be null")
-        return await request.app.state.accounts.update_user(user, user_id, changes)
+        return await request.app.state.account_administration.update_user(user, user_id, changes)
 
     @router.post("/api/v1/admin/users/{user_id}/revoke-sessions")
     async def revoke(user_id: UUID, request: Request, user: Principal = Depends(developer)):
-        return await request.app.state.accounts.revoke_sessions(user, user_id)
+        return await request.app.state.account_administration.revoke_sessions(user, user_id)
 
     return router

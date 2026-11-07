@@ -3,7 +3,7 @@
 import hashlib
 import json
 
-from stockgraph.adapters.repositories.falkor.repository import public_props
+from stockgraph.application.graph_queries.presentation import public_props
 from stockgraph.domain.context import GraphEdge, GraphExploration, GraphNode
 
 

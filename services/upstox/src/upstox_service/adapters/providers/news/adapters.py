@@ -33,9 +33,7 @@ import logging
 import re
 from abc import ABC, abstractmethod
 from collections.abc import Sequence
-from dataclasses import dataclass, field
 from datetime import UTC, datetime
-from enum import Enum
 from typing import Any
 from urllib.parse import quote, urlencode
 
@@ -43,56 +41,15 @@ from upstox_service.adapters.providers.http_client import ResilientHttpClient
 from upstox_service.config.settings import settings
 from upstox_service.domain.entities import NewsArticle
 from upstox_service.domain.enums import NewsCategory
+from upstox_service.domain.news import ProviderFetchResult, ProviderStatus, StagedNewsItem
 from upstox_service.domain.resolver import CanonicalEntityResolver
 
 logger = logging.getLogger(__name__)
 
 
-class ProviderStatus(str, Enum):
-    """Outcome of one provider fetch attempt."""
-
-    AVAILABLE = "AVAILABLE"
-    NOT_CONFIGURED = "NOT_CONFIGURED"
-    DEGRADED_PAYWALL = "DEGRADED_PAYWALL"
-    QUOTA_EXHAUSTED = "QUOTA_EXHAUSTED"
-    ERROR = "ERROR"
-
-
-@dataclass(frozen=True)
-class StagedNewsItem:
-    """One provider item ready to be staged immutably in `news_raw`.
-
-    Carries the provider's untouched payload alongside the identity fields
-    the staging table needs, so the audit trail is exactly what the
-    provider returned.
-    """
-
-    external_id: str
-    published_at: datetime
-    source_url: str
-    payload: dict[str, Any] = field(default_factory=dict, repr=False)
-
-
-@dataclass(frozen=True)
-class ProviderFetchResult:
-    """Outcome of one provider fetch - articles plus how it went.
-
-    Immutable: a fetch result is a record of what happened, not a mutable
-    accumulator. Before eligibility filtering, `staged` carries each
-    provider's untouched item dict.  After filtering it contains only the
-    approved pairs that may be written to SQL. `watermark_at` still records
-    the newest parsed provider item so rejected stories are not re-fetched.
-    """
-
-    provider_id: str
-    status: ProviderStatus
-    articles: tuple[NewsArticle, ...] = ()
-    requests_used: int = 0
-    error: str | None = None
-    staged: tuple[StagedNewsItem, ...] = field(default=(), repr=False)
-    watermark_at: datetime | None = None
-    approvals: dict[str, tuple[str, str]] = field(default_factory=dict, repr=False)
-    eligibility_counts: dict[str, int] = field(default_factory=dict, repr=False)
+def _provider_symbol(resolver: CanonicalEntityResolver, ticker: str) -> str:
+    canonical = resolver.resolve_stock(ticker)
+    return f"{canonical}{settings.news_symbol_suffix}" if canonical else ""
 
 
 class ProviderPaywalled(RuntimeError):
@@ -519,6 +476,10 @@ class NewsProviderAdapter(ABC):
         """
         return dict(payload)
 
+    def normalize_staged(self, payload: dict[str, Any]) -> list[tuple[NewsArticle, StagedNewsItem]]:
+        """Normalize an already staged provider payload without another request."""
+        return self._normalize([self.replay_item(payload)])
+
     def _normalize(
         self, items: Sequence[dict[str, Any]]
     ) -> list[tuple[NewsArticle, StagedNewsItem]]:
@@ -666,7 +627,7 @@ class MarketauxNewsAdapter(NewsProviderAdapter):
     def _build_url(self, since: datetime, limit: int, page: int, query: str = "default") -> str:
         symbols = [
             s
-            for s in (self._resolver.provider_symbol(t) for t in self._resolver.list_stocks())
+            for s in (_provider_symbol(self._resolver, t) for t in self._resolver.list_stocks())
             if s
         ]
         params = {
@@ -949,7 +910,7 @@ class FmpNewsAdapter(NewsProviderAdapter):
     def _build_url(self, since: datetime, limit: int, page: int, query: str = "default") -> str:
         symbols = [
             s
-            for s in (self._resolver.provider_symbol(t) for t in self._resolver.list_stocks())
+            for s in (_provider_symbol(self._resolver, t) for t in self._resolver.list_stocks())
             if s
         ]
         params = {

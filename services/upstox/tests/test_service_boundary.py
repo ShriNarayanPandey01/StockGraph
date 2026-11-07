@@ -130,8 +130,7 @@ async def test_personal_stock_reads_never_write_shared_provider_data(monkeypatch
     provider.fetch_profile.return_value = {"business_summary": "Personal provider result"}
     provider.fetch_shareholding.return_value = [{"period": "Sep 2026", "category": "promoters", "percentage": 60}]
     provider.fetch_daily_candles.return_value = [{"trade_date": date(2026, 1, 1), "open": 1, "high": 1, "low": 1, "close": 1, "volume": 1}]
-    monkeypatch.setattr(module, "StockDataRepository", lambda unused: repo)
-    service = module.StockDataService(object(), provider, persist_provider_results=False)
+    service = module.StockDataService(repo, provider, persist_provider_results=False)
     assert (await service.stock("TCS", "NSE"))["profile"]["business_summary"] == "Personal provider result"
     assert (await service.shareholding("TCS", "NSE"))["periods"][0]["promoters"] == 60
     assert len((await service.candles("TCS", "NSE", date(2026, 1, 1), date(2026, 1, 1)))["candles"]) == 1

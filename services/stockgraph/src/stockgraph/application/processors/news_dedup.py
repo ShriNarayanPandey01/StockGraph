@@ -21,6 +21,7 @@ from dataclasses import dataclass
 from typing import Any
 from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
 
+from stockgraph.application.processors.similarity import cosine_similarity
 from stockgraph.domain.entities import NewsArticle
 from stockgraph.runtime.settings import settings
 
@@ -226,33 +227,39 @@ class NewsDeduper:
         self, props: dict[str, Any], embedding: list[float], now_ts: int
     ) -> DedupOutcome:
         """L3: vector gate - DUPLICATE_OF on cosine >= threshold, else MERGE."""
-        from stockgraph.adapters.repositories.falkor.legacy_repository import (
-            FalkorGraphRAGRepository,
-        )
-
         ticker = str(props.get("ticker", "")).upper()
         if self._repo is None:
             return DedupOutcome(action="created", news_id=str(props["id"]))
-        hit = self._repo.find_near_dup(embedding, ticker, now_ts)
-        if hit is not None:
-            node = hit[0] if isinstance(hit, (list, tuple)) else hit
-            gate = FalkorGraphRAGRepository.resolve_l3_duplicate(
-                embedding, _node_prop(node, "embedding")
-            )
-            if bool(gate["is_duplicate"]):
-                canon_id = _node_prop(node, "id")
-                if canon_id:
-                    self.link_duplicate(str(props["id"]), str(canon_id))
-                    self._maybe_upgrade_canonical(str(canon_id), props, _node_prop(node, "source"))
-                    return DedupOutcome(
-                        action="duplicate_l3",
-                        news_id=str(props["id"]),
-                        canonical_id=str(canon_id),
-                    )
-                logger.warning("L3 hit without canonical id; creating %s", props["id"])
+        hit = self.find_semantic_duplicate(embedding, ticker, now_ts)
+        if hit:
+            canon_id = hit["id"]
+            self.link_duplicate(str(props["id"]), canon_id)
+            self._maybe_upgrade_canonical(canon_id, props, hit["source"])
+            return DedupOutcome(action="duplicate_l3", news_id=str(props["id"]), canonical_id=canon_id)
         created = self._repo.merge_news_event(dict(props), embedding=embedding)
         created_id = _node_prop(created, "id") or props["id"]
         return DedupOutcome(action="created", news_id=str(created_id))
+
+    def find_semantic_duplicate(
+        self, embedding: list[float], ticker: str, now_ts: int
+    ) -> dict[str, Any] | None:
+        """Re-score the candidate locally without depending on a graph adapter."""
+        if self._repo is None:
+            return None
+        hit = self._repo.find_near_dup(embedding, ticker.upper(), now_ts)
+        if hit is None:
+            return None
+        node = hit[0] if isinstance(hit, (list, tuple)) else hit
+        candidate_embedding = _node_prop(node, "embedding")
+        if not candidate_embedding or not (
+            cosine_similarity(embedding, candidate_embedding) >= settings.dedup_cosine_threshold
+        ):
+            return None
+        canon_id = _node_prop(node, "id")
+        if not canon_id:
+            logger.warning("L3 hit without canonical id; creating a new event")
+            return None
+        return {"id": str(canon_id), "source": _node_prop(node, "source")}
 
     def process(
         self, props: dict[str, Any], embedding: list[float] | None, now_ts: int

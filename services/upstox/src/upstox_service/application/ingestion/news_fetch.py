@@ -21,9 +21,7 @@ adapters or the graph layer:
    that gives the richest record (ticker + sentiment) fetches first, so it
    claims the L1 URL slot and becomes the canonical NewsEvent.
 
-`NewsProviderFactory` is the composition root: the only place that names
-concrete provider classes. Everything else depends on the
-`NewsProviderAdapter` abstraction.
+The runtime composes concrete providers; this service consumes application ports.
 """
 
 from __future__ import annotations
@@ -32,104 +30,32 @@ import asyncio
 import logging
 from dataclasses import dataclass, replace
 from datetime import UTC, datetime, timedelta
-from typing import Any
 
-from upstox_service.adapters.providers.http_client import ResilientHttpClient
-from upstox_service.adapters.providers.news.adapters import (
-    AlphaVantageNewsAdapter,
-    CurrentsNewsAdapter,
-    FmpNewsAdapter,
-    MarketauxNewsAdapter,
-    NewsProviderAdapter,
-    ProviderFetchResult,
-    ProviderStatus,
-)
 from upstox_service.application.ingestion.news_eligibility import (
     EligibilityReviewer,
     NewsEligibilityGate,
 )
-from upstox_service.config.settings import settings
+from upstox_service.application.ports import (
+    NewsCommitPort,
+    NewsPersistencePort,
+    NewsProviderPort,
+    NewsReviewStorePort,
+    NewsStagingPort,
+    RequestQuotaPort,
+)
+from upstox_service.config.settings import Settings, settings
 from upstox_service.domain.entities import NewsArticle
-from upstox_service.domain.resolver import CanonicalEntityResolver
+from upstox_service.domain.news import ProviderFetchResult, ProviderStatus
 
 logger = logging.getLogger(__name__)
 
-# Provider id -> (adapter class, settings attribute holding the API key).
-_PROVIDER_REGISTRY: dict[str, tuple[type[NewsProviderAdapter], str]] = {
-    "marketaux": (MarketauxNewsAdapter, "marketaux_api_key"),
-    "currents": (CurrentsNewsAdapter, "currents_api_key"),
-    "alphavantage": (AlphaVantageNewsAdapter, "alpha_vantage_api_key"),
-    "fmp": (FmpNewsAdapter, "fmp_api_key"),
-}
 
-
-class RequestQuotaBudget:
-    """Per-provider daily request budget, backed by Redis counters.
-
-    The counter key format is an implementation detail and stays private;
-    callers only ask `try_consume()`.
-    """
-
-    def __init__(self, redis_client: Any | None, daily_cap_override: int | None = None) -> None:
-        self._redis = redis_client
-        self._override = daily_cap_override
-
-    @property
-    def enabled(self) -> bool:
-        return self._redis is not None
-
-    def _key(self, provider_id: str) -> str:
-        return f"newsquota:{provider_id}:{datetime.now(UTC):%Y%m%d}"
-
-    def effective_cap(self, provider_cap: int) -> int:
-        """The cap that applies to a provider: the operator override, else
-        the provider's own declared plan limit."""
-        if self._override is not None:
-            return self._override
-        return provider_cap
-
+class UnlimitedQuota:
     def try_consume(self, provider_id: str, provider_cap: int) -> bool:
-        """Consume one request from today's budget. False when exhausted.
-
-        With no Redis the budget cannot be enforced, so the request is
-        allowed through: an unavailable cache must not silently stop
-        ingestion.
-        """
-        if self._redis is None:
-            return True
-        cap = self.effective_cap(provider_cap)
-        key = self._key(provider_id)
-        try:
-            used = int(self._redis.incr(key))
-            if used == 1:
-                self._redis.expire(key, self._seconds_until_utc_midnight())
-            if used > cap:
-                # Give the slot back so the counter reflects real usage.
-                self._redis.decr(key)
-                return False
-        except Exception:  # noqa: BLE001 - fail open, never stop ingestion
-            logger.warning("Quota counter unavailable for %s", provider_id)
-            return False
         return True
 
     def consumed(self, provider_id: str) -> int:
-        """Requests already consumed today for a provider."""
-        if self._redis is None:
-            return 0
-        try:
-            raw = self._redis.get(self._key(provider_id))
-        except Exception:  # noqa: BLE001
-            return 0
-        try:
-            return int(raw) if raw is not None else 0
-        except (TypeError, ValueError):
-            return 0
-
-    @staticmethod
-    def _seconds_until_utc_midnight() -> int:
-        now = datetime.now(UTC)
-        tomorrow = (now + timedelta(days=1)).replace(hour=0, minute=0, second=0, microsecond=0)
-        return max(60, int((tomorrow - now).total_seconds()))
+        return 0
 
 
 @dataclass(frozen=True)
@@ -163,16 +89,19 @@ class NewsFetchService:
 
     def __init__(
         self,
-        adapters: list[NewsProviderAdapter],
-        timescale_repo: Any | None = None,
-        quota: RequestQuotaBudget | None = None,
+        adapters: list[NewsProviderPort],
+        timescale_repo: NewsStagingPort | None = None,
+        quota: RequestQuotaPort | None = None,
         eligibility_reviewer: EligibilityReviewer | None = None,
+        *,
+        persistence: NewsPersistencePort | None = None,
+        config: Settings | None = None,
     ) -> None:
         self._adapters = sorted(adapters, key=lambda a: a.priority)
         self._timescale = timescale_repo
-        self._quota = quota or RequestQuotaBudget(
-            None, daily_cap_override=settings.news_daily_request_cap
-        )
+        self._quota = quota if quota is not None else UnlimitedQuota()
+        self._persistence = persistence
+        self._config = config or settings
         self._eligibility = NewsEligibilityGate(eligibility_reviewer)
         # Providers whose plan does not include the endpoint we need. Re-probing
         # them every cycle would burn daily quota on a request that can never
@@ -227,7 +156,7 @@ class NewsFetchService:
 
             window = since if since is not None else await self._window_for(provider_id)
             result = await asyncio.to_thread(
-                adapter.fetch, window, limit=settings.news_max_articles_per_run
+                adapter.fetch, window, limit=self._config.news_max_articles_per_run
             )
             if result.status is ProviderStatus.DEGRADED_PAYWALL:
                 self._paywalled.add(provider_id)
@@ -269,16 +198,14 @@ class NewsFetchService:
                 continue
             try:
                 try:
-                    item = adapter.replay_item(row["payload"])
-                    pairs = adapter._normalize([item])
+                    pairs = adapter.normalize_staged(row["payload"])
                 except (ValueError, TypeError, KeyError):
                     logger.warning(
                         "Pending review cannot normalize provider=%s", row["provider_id"]
                     )
-                    if hasattr(self._timescale, "defer_news_review"):
-                        await self._timescale.defer_news_review(
-                            row["provider_id"], row["external_id"]
-                        )
+                    await self._timescale.defer_news_review(
+                        row["provider_id"], row["external_id"]
+                    )
                     continue
             except Exception as exc:  # noqa: BLE001 - one bad payload is skipped
                 logger.warning("Replay failed for %s: %s", row["external_id"], exc)
@@ -311,7 +238,7 @@ class NewsFetchService:
         """The `since` instant for a provider: watermark minus the lookback,
         bounded by the hard maximum window."""
         now = datetime.now(UTC)
-        floor = now - timedelta(minutes=settings.news_lookback_minutes)
+        floor = now - timedelta(minutes=self._config.news_lookback_minutes)
         if self._timescale is None:
             return floor
         try:
@@ -321,11 +248,14 @@ class NewsFetchService:
             return floor
         if watermark is None:
             return floor
-        bounded = now - timedelta(minutes=settings.news_max_window_minutes)
-        return max(bounded, watermark - timedelta(minutes=settings.news_lookback_minutes))
+        bounded = now - timedelta(minutes=self._config.news_max_window_minutes)
+        return max(bounded, watermark - timedelta(minutes=self._config.news_lookback_minutes))
 
     async def _stage(self, result: ProviderFetchResult) -> None:
         """Stage raw provider payloads immutably BEFORE any graph write."""
+        if self._persistence is not None:
+            await self._persistence.stage(result)
+            return
         if self._timescale is None:
             return
         for item in result.staged:
@@ -344,6 +274,9 @@ class NewsFetchService:
 
     async def _advance_watermark(self, provider_id: str, result: ProviderFetchResult) -> None:
         """Advance the watermark to the newest article seen. Never moves back."""
+        if self._persistence is not None:
+            await self._persistence.advance(provider_id, result)
+            return
         if self._timescale is None or result.watermark_at is None:
             return
         try:
@@ -385,79 +318,56 @@ class NewsFetchService:
         )
 
 
-def build_news_adapters(
-    resolver: CanonicalEntityResolver | None = None,
-    http_client: ResilientHttpClient | None = None,
-) -> list[NewsProviderAdapter]:
-    """Composition root: build the enabled provider adapters, in priority order.
+class CommittedNewsPersistence:
+    """Commit raw news, watermark and outbox in the repository transaction."""
 
-    This is the ONLY place that names the concrete provider classes, so
-    adding or removing a provider never touches the fetch service.
-    """
-    resolver = resolver or CanonicalEntityResolver.from_seed()
-    adapters: list[NewsProviderAdapter] = []
-    for raw_name in settings.news_providers_enabled.split(","):
-        name = raw_name.strip().lower()
-        entry = _PROVIDER_REGISTRY.get(name)
-        if entry is None:
-            logger.warning("Unknown news provider %r - ignored", raw_name)
-            continue
-        adapter_cls, key_attr = entry
-        adapters.append(
-            adapter_cls(
-                api_key=getattr(settings, key_attr),
-                resolver=resolver,
-                http_client=http_client,
-            )
-        )
-    return sorted(adapters, key=lambda a: a.priority)
+    def __init__(self, repository: NewsCommitPort) -> None:
+        self._repository = repository
+
+    async def stage(self, result: ProviderFetchResult) -> None:
+        await self._repository.commit_news(result)
+
+    async def advance(self, provider_id: str, result: ProviderFetchResult) -> None:
+        # commit_news advanced the watermark atomically.
+        return None
 
 
-class CommittedNewsFetchService(NewsFetchService):
-    """Fail closed on SQL staging failures; commit the graph outbox atomically."""
+class PendingNewsReviewService:
+    def __init__(self, repository: NewsReviewStorePort, providers: list[NewsProviderPort],
+                 eligibility: NewsEligibilityGate, *, limit: int) -> None:
+        self._repository = repository
+        self._providers = {provider.provider_id: provider for provider in providers}
+        self._eligibility = eligibility
+        self._limit = limit
+
+    async def replay_pending(self) -> None:
+        for row in await self._repository.pending_news_reviews(limit=self._limit):
+            adapter = self._providers.get(row["provider_id"])
+            if adapter is None:
+                continue
+            pairs = adapter.normalize_staged(row["payload"])
+            if not pairs:
+                await self._repository.finish_news_review(row["provider_id"], row["external_id"])
+                continue
+            article, staged = pairs[0]
+            decision = await self._eligibility.decide(article)
+            if decision.reason == "REVIEW_UNAVAILABLE":
+                await self._repository.defer_news_review(row["provider_id"], row["external_id"])
+                continue
+            if decision.approved and decision.category is not None:
+                await self._repository.commit_news(ProviderFetchResult(
+                    provider_id=row["provider_id"], status=ProviderStatus.AVAILABLE,
+                    articles=(replace(article, category=decision.category),), staged=(staged,),
+                    approvals={article.external_id: (decision.source, decision.reason)},
+                ))
+            await self._repository.finish_news_review(row["provider_id"], row["external_id"])
+
+
+class NewsIngestionCoordinator:
+    def __init__(self, fetch: NewsFetchService, reviews: PendingNewsReviewService) -> None:
+        self._fetch = fetch
+        self._reviews = reviews
 
     async def fetch_cycle(self, **kwargs) -> FetchCycleResult:
-        # Replay only durable pending reviews before another paid request. Their
-        # raw payload is independent of the provider fetch watermark.
-        if self._timescale is not None and hasattr(self._timescale, "pending_news_reviews"):
-            adapters = {adapter.provider_id: adapter for adapter in self._adapters}
-            for row in await self._timescale.pending_news_reviews(
-                limit=settings.news_max_articles_per_run
-            ):
-                adapter = adapters.get(row["provider_id"])
-                if adapter is None:
-                    continue
-                item = adapter.replay_item(row["payload"])
-                pairs = adapter._normalize([item])
-                if not pairs:
-                    await self._timescale.finish_news_review(row["provider_id"], row["external_id"])
-                    continue
-                article, staged = pairs[0]
-                decision = await self._eligibility.decide(article)
-                if decision.reason == "REVIEW_UNAVAILABLE":
-                    if hasattr(self._timescale, "defer_news_review"):
-                        await self._timescale.defer_news_review(
-                            row["provider_id"], row["external_id"]
-                        )
-                    continue
-                if decision.approved and decision.category is not None:
-                    await self._timescale.commit_news(
-                        ProviderFetchResult(
-                            provider_id=row["provider_id"],
-                            status=ProviderStatus.AVAILABLE,
-                            articles=(replace(article, category=decision.category),),
-                            staged=(staged,),
-                            approvals={article.external_id: (decision.source, decision.reason)},
-                        )
-                    )
-                await self._timescale.finish_news_review(row["provider_id"], row["external_id"])
-        return await super().fetch_cycle(**kwargs)
-
-    async def _stage(self, result: ProviderFetchResult) -> None:
-        if self._timescale is None:
-            raise RuntimeError("News ingestion requires a durable SQL repository")
-        await self._timescale.commit_news(result)
-
-    async def _advance_watermark(self, provider_id: str, result: ProviderFetchResult) -> None:
-        # commit_news advanced this watermark in the same transaction as its outbox.
-        return None
+        await self._reviews.replay_pending()
+        return await self._fetch.fetch_cycle(**kwargs)

@@ -10,6 +10,7 @@ from pydantic import BaseModel, Field
 
 from upstox_service.adapters.api.credentials import credential_context
 from upstox_service.adapters.providers.upstox.client import ProviderError
+from upstox_service.adapters.repositories.timescale.stock_data import StockDataRepository
 from upstox_service.application.stock_data import (
     InvalidCursor,
     StockDataService,
@@ -122,11 +123,12 @@ def _raise_public_error(exc: Exception) -> None:
 def create_stock_router(repository, provider, redis_client=None, config=None) -> APIRouter:
     """The caller owns the provider and repository lifetimes."""
     _ = (redis_client, config)
-    service = StockDataService(repository, provider)
+    stock_repository = StockDataRepository(repository)
+    service = StockDataService(stock_repository, provider)
 
     def current_service():
         context = credential_context.get()
-        return StockDataService(repository, context.stock_provider, persist_provider_results=False) if context else service
+        return StockDataService(stock_repository, context.stock_provider, persist_provider_results=False) if context else service
     router = APIRouter(prefix="/api/v1", tags=["Stocks / Market Data"])
 
     @router.get("/stocks", response_model=StockListResponse)
